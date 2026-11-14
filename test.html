@@ -1,0 +1,81 @@
+﻿<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <title>Test Nén Ảnh - Dũng (feat/process)</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; }
+    .box { border: 2px dashed #888; padding: 24px; border-radius: 8px; text-align: center; margin-bottom: 20px; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto; }
+    .preview { display: flex; gap: 16px; margin-top: 16px; flex-wrap: wrap; }
+    .preview img { max-height: 160px; border: 1px solid #ccc; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h2>Kiểm thử Module Xử lý Ảnh Client-side</h2>
+  <div class="box">
+    <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp" />
+  </div>
+  <pre id="output">Chọn 1 ảnh (JPG, PNG, WebP <= 10MB) để xem thông số nén...</pre>
+  <div class="preview" id="preview"></div>
+
+  <script type="module">
+    import imageCompression from 'https://esm.sh/browser-image-compression@2.0.2';
+
+    const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+    const MAX_SIZE_BYTES = 10 * 1024 * 1024;
+
+    function getDimensions(file) {
+      return new Promise((resolve, reject) => {
+        if (!ALLOWED_TYPES.includes(file.type)) return reject(new Error('Sai định dạng ảnh'));
+        if (file.size > MAX_SIZE_BYTES) return reject(new Error('Ảnh vượt quá 10MB'));
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => { URL.revokeObjectURL(url); resolve({ width: img.naturalWidth, height: img.naturalHeight }); };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('File ảnh bị hỏng')); };
+        img.src = url;
+      });
+    }
+
+    document.getElementById('fileInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const out = document.getElementById('output');
+      const preview = document.getElementById('preview');
+      out.textContent = 'Đang nén 3 phiên bản bằng Web Worker...';
+      preview.innerHTML = '';
+
+      try {
+        const start = performance.now();
+        const dim = await getDimensions(file);
+        const [thumb, medium, webp] = await Promise.all([
+          imageCompression(file, { maxWidthOrHeight: 200, fileType: 'image/webp', initialQuality: 0.75, useWebWorker: true }),
+          imageCompression(file, { maxWidthOrHeight: 800, fileType: 'image/webp', initialQuality: 0.8, useWebWorker: true }),
+          imageCompression(file, { maxWidthOrHeight: 4096, fileType: 'image/webp', initialQuality: 0.85, useWebWorker: true }),
+        ]);
+        const ms = Math.round(performance.now() - start);
+
+        out.textContent = JSON.stringify({
+          tenFile: file.name,
+          kichThuocGoc: `${dim.width}x${dim.height}`,
+          dungLuongGoc: `${(file.size / 1024).toFixed(1)} KB`,
+          thumb200: `${(thumb.size / 1024).toFixed(1)} KB`,
+          medium800: `${(medium.size / 1024).toFixed(1)} KB`,
+          fullWebp: `${(webp.size / 1024).toFixed(1)} KB`,
+          tietKiem: `${(((file.size - webp.size) / file.size) * 100).toFixed(1)}%`,
+          thoiGianXuLy: `${ms} ms`
+        }, null, 2);
+
+        [thumb, medium, webp].forEach((blob, idx) => {
+          const img = document.createElement('img');
+          img.src = URL.createObjectURL(blob);
+          img.title = ['Thumb 200px', 'Medium 800px', 'Full WebP'][idx];
+          preview.appendChild(img);
+        });
+      } catch (err) {
+        out.textContent = 'LỖI: ' + err.message;
+      }
+    });
+  </script>
+</body>
+</html>
