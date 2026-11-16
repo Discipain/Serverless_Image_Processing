@@ -13,7 +13,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install
-      - run: npm run lint --if-present
-      - run: npm run build --if-present
-      
+      - name: Check project and build
+        run: |
+          if [ -f "package.json" ]; then
+            npm install
+            npm run lint --if-present
+            npm run build --if-present
+          else
+            echo "Chưa có package.json (đang chờ code Frontend), bỏ qua bước build."
+          fi
