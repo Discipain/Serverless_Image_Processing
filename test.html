@@ -54,16 +54,15 @@
           imageCompression(file, { maxWidthOrHeight: 4096, fileType: 'image/webp', initialQuality: 0.85, useWebWorker: true }),
         ]);
         const ms = Math.round(performance.now() - start);
+        const saved = (((file.size - webp.size) / file.size) * 100).toFixed(1);
 
         out.textContent = JSON.stringify({
           tenFile: file.name,
           kichThuocGoc: `${dim.width}x${dim.height}`,
-          dungLuongGoc: `${(file.size / 1024).toFixed(1)} KB`,
-          thumb200: `${(thumb.size / 1024).toFixed(1)} KB`,
-          medium800: `${(medium.size / 1024).toFixed(1)} KB`,
-          fullWebp: `${(webp.size / 1024).toFixed(1)} KB`,
-          tietKiem: `${(((file.size - webp.size) / file.size) * 100).toFixed(1)}%`,
-          thoiGianXuLy: `${ms} ms`
+          dungLuongGoc: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
+          dungLuongFullWebp: `${(webp.size / (1024 * 1024)).toFixed(2)} MB`,
+          tietKiem: `${saved}%`,
+          thoiGianNen: `${ms} ms`
         }, null, 2);
 
         [thumb, medium, webp].forEach((blob, idx) => {

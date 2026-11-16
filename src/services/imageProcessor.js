@@ -86,6 +86,9 @@ export async function processImageClient(file) {
 }
 
 async function uploadAllVariantsToStorage(uid, imageId, fileName, blobs) {
+  if (!storage) {
+    throw new Error('Firebase Storage chưa được khởi tạo (chờ firebaseConfig)');
+  }
   const paths = buildStoragePaths(uid, imageId, fileName);
 
   const uploadOne = async (storagePath, blob, contentType) => {
@@ -102,19 +105,25 @@ async function uploadAllVariantsToStorage(uid, imageId, fileName, blobs) {
   ]);
 
   return {
-    original: originalUrl,
-    thumbnail: thumbnailUrl,
-    medium: mediumUrl,
-    webp: webpUrl,
+    paths,
+    urls: {
+      original: originalUrl,
+      thumbnail: thumbnailUrl,
+      medium: mediumUrl,
+      webp: webpUrl,
+    },
   };
 }
 
 export async function processAndUploadImage(uid, imageId, file) {
+  if (!db) {
+    throw new Error('Firestore chưa được khởi tạo (chờ firebaseConfig)');
+  }
   const docRef = doc(db, 'images', imageId);
 
   try {
     const processed = await processImageClient(file);
-    const variantUrls = await uploadAllVariantsToStorage(
+    const { paths, urls } = await uploadAllVariantsToStorage(
       uid,
       imageId,
       file.name,
@@ -123,8 +132,9 @@ export async function processAndUploadImage(uid, imageId, file) {
 
     await updateDoc(docRef, {
       status: 'DONE',
+      originalPath: paths.original, // Lưu rõ đường dẫn file gốc trong uploads/{uid}/{imageId}/
       original: processed.original,
-      variants: variantUrls,
+      variants: urls,
       processedSize: processed.processedSize,
       processingMs: processed.processingMs,
       savedPercent: processed.savedPercent,
@@ -132,7 +142,7 @@ export async function processAndUploadImage(uid, imageId, file) {
       updatedAt: serverTimestamp(),
     });
 
-    return { status: 'DONE', variants: variantUrls, processingMs: processed.processingMs };
+    return { status: 'DONE', variants: urls, processingMs: processed.processingMs };
   } catch (error) {
     await updateDoc(docRef, {
       status: 'FAILED',
@@ -159,7 +169,11 @@ export async function processBatchQueue(items, onItemDone, onItemError, concurre
   await Promise.all(workers);
 }
 
+// Đã sửa: Đọc đúng file gốc từ uploads/{uid}/{imageId}/{fileName} thay vì variants.original
 export async function retryClient(imageId, cachedFile = null) {
+  if (!db || !storage) {
+    throw new Error('Firebase chưa được khởi tạo (chờ firebaseConfig)');
+  }
   const docRef = doc(db, 'images', imageId);
   const snap = await getDoc(docRef);
 
@@ -169,20 +183,26 @@ export async function retryClient(imageId, cachedFile = null) {
 
   const data = snap.data();
   const uid = data.ownerId || data.userId;
-  const fileName = data.fileName || `${imageId}.jpg`;
+  const fileName = data.fileName;
+
+  if (!uid || !fileName) {
+    throw new Error('Thiếu thông tin uid hoặc fileName để xác định đường dẫn uploads/');
+  }
+
   let targetFile = cachedFile;
 
-  if (!targetFile && data.variants?.original) {
-    const response = await fetch(data.variants.original);
+  // Nếu mất cachedFile trên RAM, lấy trực tiếp từ đường dẫn gốc uploads/{uid}/{imageId}/{fileName}
+  if (!targetFile) {
+    const rawOriginalPath = data.originalPath || `uploads/${uid}/${imageId}/${fileName}`;
+    const originalRef = ref(storage, rawOriginalPath);
+    const rawDownloadUrl = await getDownloadURL(originalRef);
+
+    const response = await fetch(rawDownloadUrl);
     if (!response.ok) {
-      throw new Error('Không thể tải lại ảnh gốc từ Storage');
+      throw new Error(`Không thể tải lại ảnh gốc tại ${rawOriginalPath}`);
     }
     const blob = await response.blob();
     targetFile = new File([blob], fileName, { type: blob.type || 'image/jpeg' });
-  }
-
-  if (!targetFile) {
-    throw new Error('Không còn dữ liệu ảnh gốc để thử lại, vui lòng tải lên ảnh mới.');
   }
 
   return await processAndUploadImage(uid, imageId, targetFile);
