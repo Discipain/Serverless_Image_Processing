@@ -8,7 +8,14 @@ class Settings(BaseSettings):
     GOOGLE_REDIRECT_URI: str = "http://localhost:8000/oauth/callback"
     FRONTEND_URL: str = "http://localhost:3000"
 
-    # Quyền truy cập Google Profile + Google Drive (chỉ file do app tạo ra)
+    FIREBASE_PROJECT_ID: str = "image-processing-project-ea23d"
+    FIREBASE_STORAGE_BUCKET: str = "image-processing-project-ea23d.firebasestorage.app"
+
+    CLOUDINARY_CLOUD_NAME: str = "znawrd5q"
+    CLOUDINARY_UPLOAD_PRESET: str = "serverless_image_preset"
+    CLOUDINARY_API_KEY: str = "325155291857765"
+    CLOUDINARY_API_SECRET: str = "rKeprzW5vQkeDixIZt_WW1aDVZQ"
+
     GOOGLE_SCOPES: list[str] = [
         "openid",
         "https://www.googleapis.com/auth/userinfo.email",

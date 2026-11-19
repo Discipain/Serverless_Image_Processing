@@ -3,16 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Test Bench — Google Drive Image Pipeline</title>
+  <title>Test Bench — Google Drive & Cloudinary Image Pipeline</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen font-sans">
   <div class="max-w-7xl mx-auto p-6 space-y-6">
-    <!-- Header -->
+    <!-- Header & Google OAuth -->
     <header class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-wrap items-center justify-between gap-4">
       <div>
-        <h1 class="text-xl font-bold text-emerald-400">Image Pipeline & Google Drive Test Bench</h1>
-        <p class="text-xs text-slate-400 mt-1">Luồng thư mục Drive: <code class="text-amber-300">upload/</code> ➔ <code class="text-sky-300">processing/</code> ➔ <code class="text-emerald-300">processed/</code></p>
+        <h1 class="text-xl font-bold text-emerald-400">Backend Core Test Bench (Google Drive & Cloudinary)</h1>
+        <p class="text-xs text-slate-400 mt-1">
+          UC01 / UC02 / UC03 / UC04 • Cloud: <code class="text-sky-300">zftcbu1g</code> • Preset: <code class="text-amber-300">serverless_image_preset</code>
+        </p>
       </div>
 
       <div class="flex items-center gap-3">
@@ -30,30 +32,31 @@
       </div>
     </header>
 
-    <!-- Thanh X-User-Id -->
+    <!-- X-User-Id & Test Phân Quyền 403 -->
     <section class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-wrap items-end gap-4">
       <div class="flex-1 min-w-[240px]">
         <label class="block text-xs text-slate-400 mb-1">Header <code class="text-amber-300">X-User-Id</code> đang xác thực</label>
-        <input id="manualUidInput" type="text" placeholder="Chưa có X-User-Id..." class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-amber-300" />
+        <input id="manualUidInput" type="text" placeholder="Nhập hoặc nhận tự động sau khi Login Google..." class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-amber-300" />
       </div>
       <button onclick="saveManualUid()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-4 py-2 rounded-lg">
         Lưu X-User-Id
       </button>
       <button onclick="quickSwitchUser('hacker_user_B')" class="bg-rose-900/60 hover:bg-rose-800 border border-rose-700 text-rose-200 text-sm px-3 py-2 rounded-lg">
-        Đổi sang User B (Test 403)
+        Đổi sang User B (Test đọc trộm 403)
       </button>
     </section>
 
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-      <!-- Cột Trái (5 cột): Upload & Chuyển State -->
+      <!-- Cột Trái (5 cột): Drive Folder, Upload (Drive & Cloudinary), Pipeline -->
       <div class="lg:col-span-5 space-y-6">
-        <!-- 1. Tạo thư mục -->
+        <!-- 1. Tạo thư mục Google Drive -->
         <section class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
-          <h2 class="text-base font-semibold text-sky-400">1. Khởi tạo Thư Mục Pipeline Trên Google Drive</h2>
+          <h2 class="text-base font-semibold text-sky-400">1. Tạo Thư Mục Pipeline Trên Google Drive</h2>
+          <p class="text-xs text-slate-400">Tạo thư mục gốc kèm 3 thư mục con: <code>upload</code>, <code>processing</code>, <code>processed</code>.</p>
           <div class="flex gap-2">
             <input id="folderNameInput" type="text" value="App_Image_Pipeline" class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
             <button onclick="createDriveFolder()" class="bg-sky-600 hover:bg-sky-500 text-white text-sm font-medium px-4 py-2 rounded-lg">
-              Tạo Folder
+              Tạo Folder/Chọn Folder (đã tạo xong)
             </button>
           </div>
           <div class="text-xs text-slate-400">
@@ -62,35 +65,62 @@
           </div>
         </section>
 
-        <!-- 2. Upload & Pipeline -->
+        <!-- 2. UC01 & UC02: Upload & Xử lý ảnh -->
         <section class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-          <h2 class="text-base font-semibold text-emerald-400">2. Upload Ảnh & Chuyển Trạng Thái Thư Mục</h2>
+          <h2 class="text-base font-semibold text-emerald-400">2. UC01 / UC02 — Upload & Pipeline Ảnh</h2>
+          <p class="text-xs text-slate-400">Chỉ cho phép <code>.jpg, .png, .webp</code> và dung lượng <code>≤ 10MB</code>.</p>
+
           <input id="fileInput" type="file" accept="image/jpeg,image/png,image/webp" class="block w-full text-sm text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-emerald-600 file:text-white hover:file:bg-emerald-500" />
 
           <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
             <input id="autoProcessCheckbox" type="checkbox" checked class="rounded bg-slate-800 border-slate-600 text-emerald-500" />
-            Tự động chạy toàn bộ pipeline (<code>upload</code> ➔ 2s ➔ <code>processing</code> ➔ 2s ➔ <code>processed</code>)
+            Tự động chạy pipeline Drive (<code>upload/</code> ➔ <code>processing/</code> ➔ <code>processed/</code>)
           </label>
 
-          <button onclick="uploadToDrive()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium py-2.5 rounded-lg">
-            Upload vào thư mục <code>upload/</code>
-          </button>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button onclick="uploadToDrive()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium py-2.5 px-3 rounded-lg">
+              Upload Google Drive
+            </button>
+            <button onclick="uploadToCloudinary()" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium py-2.5 px-3 rounded-lg">
+              Upload Cloudinary (UC01+02)
+            </button>
+          </div>
 
+          <!-- Điều khiển trạng thái thủ công -->
           <div class="pt-3 border-t border-slate-800 space-y-2">
-            <div class="text-xs font-semibold text-slate-300">Chuyển trạng thái thủ công:</div>
-            <div class="grid grid-cols-2 gap-2">
-              <button onclick="triggerProcessing()" class="bg-sky-700 hover:bg-sky-600 text-white text-xs font-medium py-2 px-3 rounded-lg">
-                1. Sang <code>processing/</code>
+            <div class="text-xs font-semibold text-slate-300">Chuyển trạng thái / Xử lý thủ công theo ImageID:</div>
+            <div class="grid grid-cols-3 gap-2">
+              <button onclick="triggerProcessing()" class="bg-sky-700 hover:bg-sky-600 text-white text-xs font-medium py-2 px-2 rounded-lg">
+                1. <code>processing/</code>
               </button>
-              <button onclick="triggerComplete()" class="bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium py-2 px-3 rounded-lg">
-                2. Hoàn tất ➔ <code>processed/</code>
+              <button onclick="triggerComplete()" class="bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium py-2 px-2 rounded-lg">
+                2. <code>processed/</code>
+              </button>
+              <button onclick="triggerCloudinaryProcess()" class="bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-medium py-2 px-2 rounded-lg">
+                UC02 Cloudinary
+              </button>
+            </div>
+          </div>
+
+          <!-- Test nhanh checkFile / requestUpload -->
+          <div class="pt-3 border-t border-slate-800 space-y-2">
+            <div class="text-xs font-semibold text-amber-300">Test luật <code>checkFile()</code> & <code>requestUpload()</code>:</div>
+            <div class="flex flex-wrap gap-2">
+              <button onclick="testRequestUpload('sample.webp', 'image/webp', 102400)" class="bg-slate-800 hover:bg-slate-700 text-emerald-300 text-xs px-2.5 py-1.5 rounded-lg border border-slate-700">
+                Hợp lệ (.webp)
+              </button>
+              <button onclick="testRequestUpload('shell.exe', 'application/x-msdownload', 2048)" class="bg-slate-800 hover:bg-slate-700 text-rose-400 text-xs px-2.5 py-1.5 rounded-lg border border-slate-700">
+                Sai định dạng (.exe -> 400)
+              </button>
+              <button onclick="testRequestUpload('big.jpg', 'image/jpeg', 15728640)" class="bg-slate-800 hover:bg-slate-700 text-rose-400 text-xs px-2.5 py-1.5 rounded-lg border border-slate-700">
+                Quá 10MB (15MB -> 400)
               </button>
             </div>
           </div>
         </section>
 
         <!-- Console Log -->
-        <section class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col h-[260px]">
+        <section class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col h-[250px]">
           <div class="flex items-center justify-between mb-2">
             <h2 class="text-sm font-semibold text-slate-300">API Response Log (JSON)</h2>
             <button onclick="clearLog()" class="text-xs text-slate-400 hover:text-white">Xóa log</button>
@@ -99,21 +129,24 @@
         </section>
       </div>
 
-      <!-- Cột Phải (7 cột): Show Ảnh UC03 & UC04 -->
+      <!-- Cột Phải (7 cột): UC03 Chi tiết + 3 Variants & UC04 Thư viện -->
       <div class="lg:col-span-7 space-y-6">
-        <!-- UC03: Chi tiết ảnh & 3 Variants -->
+        <!-- UC03 -->
         <section class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-          <div class="flex items-center justify-between">
-            <h2 class="text-base font-semibold text-purple-400">3. UC03 — Chi Tiết Trạng Thái & Xem Ảnh Đã Xử Lý</h2>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2 class="text-base font-semibold text-purple-400">3. UC03 — Chi Tiết Trạng Thái & Variants</h2>
             <div class="flex gap-2">
-              <input id="inspectImageIdInput" type="text" placeholder="Nhập imageId..." class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-purple-300 w-56" />
+              <input id="inspectImageIdInput" type="text" placeholder="ImageID nhận từ API..." class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-purple-300 w-56" />
               <button onclick="inspectImageById()" class="bg-purple-600 hover:bg-purple-500 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
                 Xem UC03
+              </button>
+              <button onclick="inspectCloudinaryById()" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
+                UC03 Cloud
               </button>
             </div>
           </div>
 
-          <!-- Visual Stepper -->
+          <!-- Stepper -->
           <div class="grid grid-cols-3 gap-2 text-center text-xs">
             <div id="step-upload" class="p-2 rounded-lg border border-slate-800 bg-slate-950 text-slate-500">
               <div class="font-bold">1. UPLOAD/</div>
@@ -129,23 +162,28 @@
             </div>
           </div>
 
-          <!-- Khu vực Show Ảnh Chi Tiết UC03 -->
+          <!-- Khung hiển thị ảnh UC03 -->
           <div id="uc03PreviewBox" class="bg-slate-950 border border-slate-800 rounded-xl p-4">
-            <p class="text-xs text-slate-500 text-center py-6">Chọn một ảnh ở thư viện bên dưới hoặc bấm "Xem UC03" để hiển thị ảnh gốc và 3 biến thể (thumbnail, medium, webp)...</p>
+            <p class="text-xs text-slate-500 text-center py-6">Upload ảnh hoặc chọn ảnh từ thư viện (UC04) để xem chi tiết và 3 biến thể (<code>thumbnail</code>, <code>medium</code>, <code>webp</code>)...</p>
           </div>
         </section>
 
-        <!-- UC04: Thư viện ảnh (Gallery) -->
+        <!-- UC04 -->
         <section class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-          <div class="flex items-center justify-between">
-            <h2 class="text-base font-semibold text-amber-400">4. UC04 — Thư Viện Ảnh Của Bạn (Gallery)</h2>
-            <button onclick="fetchListImages()" class="bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
-              Tải thư viện (UC04)
-            </button>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2 class="text-base font-semibold text-amber-400">4. UC04 — Thư Viện Ảnh (Gallery)</h2>
+            <div class="flex gap-2">
+              <button onclick="fetchListImages()" class="bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
+                Tất cả (UC04)
+              </button>
+              <button onclick="fetchCloudinaryImages()" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
+                Chỉ Cloudinary
+              </button>
+            </div>
           </div>
 
           <div id="imageGalleryGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[380px] overflow-y-auto pr-1">
-            <p class="col-span-full text-xs text-slate-500 italic">Nhấn "Tải thư viện (UC04)" để hiển thị danh sách ảnh...</p>
+            <p class="col-span-full text-xs text-slate-500 italic">Nhấn "Tất cả (UC04)" hoặc "Chỉ Cloudinary" để tải danh sách ảnh...</p>
           </div>
         </section>
       </div>
@@ -168,7 +206,6 @@
         window.history.replaceState({}, document.title, window.location.pathname);
       }
 
-      // Khôi phục imageId gần nhất đã nhận từ API
       if (currentImageId) {
         document.getElementById("inspectImageIdInput").value = currentImageId;
       }
@@ -179,9 +216,6 @@
       }
     });
 
-    /**
-     * Hàm trung tâm: Trích xuất và lưu ImageID từ bất kỳ API response nào
-     */
     function captureImageIdFromResponse(data) {
       if (!data) return null;
       const extractedId = data.imageId || data.image?.imageId || null;
@@ -189,17 +223,19 @@
         currentImageId = extractedId;
         localStorage.setItem("last_image_id", extractedId);
         const inputEl = document.getElementById("inspectImageIdInput");
-        if (inputEl) {
-          inputEl.value = extractedId;
-        }
+        if (inputEl) inputEl.value = extractedId;
       }
       return extractedId;
     }
 
-    function buildImageSrc(relativeUrl) {
-      if (!relativeUrl) return "";
+    function resolveImageUrl(urlOrPath) {
+      if (!urlOrPath) return "";
+      if (urlOrPath.startsWith("http://") || urlOrPath.startsWith("https://")) {
+        return urlOrPath;
+      }
       const uid = encodeURIComponent(localStorage.getItem("X-User-Id") || "");
-      return `${API_BASE}${relativeUrl}?uid=${uid}`;
+      const sep = urlOrPath.includes("?") ? "&" : "?";
+      return `${API_BASE}${urlOrPath}${sep}uid=${uid}`;
     }
 
     function syncUserUI() {
@@ -277,10 +313,10 @@
       localStorage.setItem("user_name", "Kẻ đọc trộm (User B)");
       localStorage.removeItem("user_email");
       syncUserUI();
-      logResponse("SWITCHED USER (Giữ nguyên ImageID để test 403)", {
+      logResponse("SWITCHED USER", {
         activeUser: fakeUid,
         targetImageId: currentImageId,
-        note: "Bấm 'Xem UC03' để kiểm tra chặn đọc trộm 403!",
+        note: "Bấm 'Xem UC03' hoặc 'UC03 Cloud' để kiểm tra lỗi 403!",
       });
     }
 
@@ -304,7 +340,6 @@
       }
     }
 
-    // Upload ảnh -> Nhận ImageID trực tiếp từ API trả về
     async function uploadToDrive() {
       const fileInput = document.getElementById("fileInput");
       if (!fileInput.files.length) return alert("Vui lòng chọn 1 file ảnh!");
@@ -324,23 +359,19 @@
       logResponse(`POST /images/upload-drive (${res.status})`, data, !res.ok);
 
       if (res.ok) {
-        const receivedImageId = captureImageIdFromResponse(data);
-        if (data.image) {
-          renderUC03Detail(data.image);
-        }
+        const receivedId = captureImageIdFromResponse(data);
+        if (data.image) renderUC03Detail(data.image);
         fetchListImages();
 
-        if (autoProcess && receivedImageId) {
+        if (autoProcess && receivedId) {
           if (pollingTimer) clearInterval(pollingTimer);
           pollingTimer = setInterval(async () => {
-            const statusRes = await fetch(`${API_BASE}/images/${receivedImageId}`, {
-              headers: getHeaders(false),
-            });
+            const statusRes = await fetch(`${API_BASE}/images/${receivedId}`, { headers: getHeaders(false) });
             const statusData = await statusRes.json();
             if (statusRes.ok) {
               captureImageIdFromResponse(statusData);
               renderUC03Detail(statusData);
-              logResponse(`AUTO POLLING GET /images/${receivedImageId}`, statusData);
+              logResponse(`AUTO POLLING GET /images/${receivedId}`, statusData);
               fetchListImages();
               if (statusData.status === "COMPLETED") clearInterval(pollingTimer);
             }
@@ -349,9 +380,31 @@
       }
     }
 
+    async function uploadToCloudinary() {
+      const fileInput = document.getElementById("fileInput");
+      if (!fileInput.files.length) return alert("Vui lòng chọn 1 file ảnh!");
+
+      const formData = new FormData();
+      formData.append("file", fileInput.files[0]);
+
+      const res = await fetch(`${API_BASE}/images/cloudinary/upload`, {
+        method: "POST",
+        headers: getHeaders(false),
+        body: formData,
+      });
+      const data = await res.json();
+      logResponse(`POST /images/cloudinary/upload (${res.status})`, data, !res.ok);
+
+      if (res.ok) {
+        captureImageIdFromResponse(data);
+        if (data.image) renderUC03Detail(data.image);
+        fetchListImages();
+      }
+    }
+
     async function triggerProcessing() {
       const imageId = document.getElementById("inspectImageIdInput").value.trim() || currentImageId;
-      if (!imageId) return alert("Chưa nhận được imageId từ API!");
+      if (!imageId) return alert("Chưa có imageId!");
       const res = await fetch(`${API_BASE}/images/${imageId}/process`, {
         method: "POST",
         headers: getHeaders(false),
@@ -367,7 +420,7 @@
 
     async function triggerComplete() {
       const imageId = document.getElementById("inspectImageIdInput").value.trim() || currentImageId;
-      if (!imageId) return alert("Chưa nhận được imageId từ API!");
+      if (!imageId) return alert("Chưa có imageId!");
       const res = await fetch(`${API_BASE}/images/${imageId}/complete`, {
         method: "POST",
         headers: getHeaders(false),
@@ -381,6 +434,37 @@
       }
     }
 
+    async function triggerCloudinaryProcess() {
+      const imageId = document.getElementById("inspectImageIdInput").value.trim() || currentImageId;
+      if (!imageId) return alert("Chưa có imageId!");
+      const res = await fetch(`${API_BASE}/images/cloudinary/${imageId}/process`, {
+        method: "POST",
+        headers: getHeaders(false),
+      });
+      const data = await res.json();
+      logResponse(`POST /images/cloudinary/${imageId}/process (${res.status})`, data, !res.ok);
+      if (res.ok) {
+        captureImageIdFromResponse(data);
+        renderUC03Detail(data);
+        fetchListImages();
+      }
+    }
+
+    async function testRequestUpload(filename, contentType, sizeBytes) {
+      const res = await fetch(`${API_BASE}/images/upload-url`, {
+        method: "POST",
+        headers: getHeaders(true),
+        body: JSON.stringify({ filename, contentType, sizeBytes }),
+      });
+      const data = await res.json();
+      logResponse(`POST /images/upload-url (${res.status})`, data, !res.ok);
+      if (res.ok) {
+        captureImageIdFromResponse(data);
+        if (data.image) renderUC03Detail(data.image);
+        fetchListImages();
+      }
+    }
+
     function copyImageId(id) {
       navigator.clipboard.writeText(id);
       alert(`Đã copy ImageID: ${id}`);
@@ -390,10 +474,10 @@
       captureImageIdFromResponse(img);
       updateStepper(img.currentFolder);
       const box = document.getElementById("uc03PreviewBox");
-      const originalSrc = buildImageSrc(img.previewUrl);
-      const thumbSrc = buildImageSrc(img.variants?.thumbnail);
-      const mediumSrc = buildImageSrc(img.variants?.medium);
-      const webpSrc = buildImageSrc(img.variants?.webp);
+      const originalSrc = resolveImageUrl(img.previewUrl);
+      const thumbSrc = resolveImageUrl(img.variants?.thumbnail);
+      const mediumSrc = resolveImageUrl(img.variants?.medium);
+      const webpSrc = resolveImageUrl(img.variants?.webp);
 
       box.innerHTML = `
         <div class="space-y-4">
@@ -401,23 +485,23 @@
             <div>
               <span class="font-bold text-slate-200">${img.originalName}</span>
               <span class="ml-2 px-2 py-0.5 rounded bg-purple-900/60 text-purple-300 font-mono">${img.status}</span>
-              <span class="ml-1 px-2 py-0.5 rounded bg-slate-800 text-amber-300 font-mono">Folder: ${img.currentFolder}/</span>
+              <span class="ml-1 px-2 py-0.5 rounded bg-slate-800 text-amber-300 font-mono">${img.provider || "storage"}</span>
             </div>
             <div class="flex items-center gap-2">
-              <span class="font-mono text-emerald-400 text-[11px]">ImageID: ${img.imageId}</span>
+              <span class="font-mono text-emerald-400 text-[11px]">ID: ${img.imageId}</span>
               <button onclick="copyImageId('${img.imageId}')" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-2 py-0.5 rounded text-[10px]">
-                Copy ID
+                Copy
               </button>
             </div>
           </div>
 
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
             <div class="bg-slate-900 border border-slate-800 rounded-lg p-2 space-y-1.5">
-              <div class="text-[11px] font-semibold text-slate-300">Ảnh gốc (${img.currentFolder}/)</div>
+              <div class="text-[11px] font-semibold text-slate-300">Ảnh gốc</div>
               ${
                 originalSrc
                   ? `<img src="${originalSrc}" alt="original" class="w-full h-28 object-cover rounded bg-slate-950" />`
-                  : `<div class="h-28 flex items-center justify-center text-slate-600 bg-slate-950 rounded">Không có ảnh</div>`
+                  : `<div class="h-28 flex items-center justify-center text-slate-600 bg-slate-950 rounded">Chưa có ảnh</div>`
               }
             </div>
 
@@ -426,7 +510,7 @@
               ${
                 thumbSrc
                   ? `<img src="${thumbSrc}" alt="thumbnail" class="w-full h-28 object-cover rounded bg-slate-950" />`
-                  : `<div class="h-28 flex items-center justify-center text-[11px] text-slate-500 bg-slate-950 rounded text-center px-2">Chờ xử lý xong...</div>`
+                  : `<div class="h-28 flex items-center justify-center text-[11px] text-slate-500 bg-slate-950 rounded text-center px-2">Chờ xử lý...</div>`
               }
             </div>
 
@@ -435,7 +519,7 @@
               ${
                 mediumSrc
                   ? `<img src="${mediumSrc}" alt="medium" class="w-full h-28 object-cover rounded bg-slate-950" />`
-                  : `<div class="h-28 flex items-center justify-center text-[11px] text-slate-500 bg-slate-950 rounded text-center px-2">Chờ xử lý xong...</div>`
+                  : `<div class="h-28 flex items-center justify-center text-[11px] text-slate-500 bg-slate-950 rounded text-center px-2">Chờ xử lý...</div>`
               }
             </div>
 
@@ -444,7 +528,7 @@
               ${
                 webpSrc
                   ? `<img src="${webpSrc}" alt="webp" class="w-full h-28 object-cover rounded bg-slate-950" />`
-                  : `<div class="h-28 flex items-center justify-center text-[11px] text-slate-500 bg-slate-950 rounded text-center px-2">Chờ xử lý xong...</div>`
+                  : `<div class="h-28 flex items-center justify-center text-[11px] text-slate-500 bg-slate-950 rounded text-center px-2">Chờ xử lý...</div>`
               }
             </div>
           </div>
@@ -452,29 +536,21 @@
       `;
     }
 
-    async function fetchListImages() {
-      const res = await fetch(`${API_BASE}/images`, { headers: getHeaders(false) });
-      const data = await res.json();
+    function renderGalleryItems(items) {
       const grid = document.getElementById("imageGalleryGrid");
-
-      if (!res.ok) {
-        grid.innerHTML = `<p class="col-span-full text-xs text-rose-400">${data.detail}</p>`;
-        return;
-      }
-      if (!data.items.length) {
-        grid.innerHTML = `<p class="col-span-full text-xs text-slate-500 italic">Thư viện trống. Hãy upload ảnh để nhận ImageID!</p>`;
+      if (!items || !items.length) {
+        grid.innerHTML = `<p class="col-span-full text-xs text-slate-500 italic">Không có ảnh nào trong danh sách.</p>`;
         return;
       }
 
-      // Nếu chưa có currentImageId, tự động nhận imageId của ảnh mới nhất trong danh sách
-      if (!currentImageId && data.items.length > 0) {
-        captureImageIdFromResponse(data.items[data.items.length - 1]);
+      if (!currentImageId) {
+        captureImageIdFromResponse(items[items.length - 1]);
       }
 
-      grid.innerHTML = data.items
+      grid.innerHTML = items
         .map((item) => {
-          const displayRelUrl = item.variants?.thumbnail || item.previewUrl;
-          const imgSrc = buildImageSrc(displayRelUrl);
+          const displayUrl = item.variants?.thumbnail || item.previewUrl;
+          const imgSrc = resolveImageUrl(displayUrl);
           const statusBadgeColor =
             item.status === "COMPLETED"
               ? "bg-emerald-900/80 text-emerald-300"
@@ -504,6 +580,25 @@
         .join("");
     }
 
+    async function fetchListImages() {
+      const res = await fetch(`${API_BASE}/images`, { headers: getHeaders(false) });
+      const data = await res.json();
+      if (!res.ok) {
+        document.getElementById("imageGalleryGrid").innerHTML = `<p class="col-span-full text-xs text-rose-400">${data.detail}</p>`;
+        return;
+      }
+      renderGalleryItems(data.items);
+    }
+
+    async function fetchCloudinaryImages() {
+      const res = await fetch(`${API_BASE}/images/cloudinary`, { headers: getHeaders(false) });
+      const data = await res.json();
+      logResponse(`GET /images/cloudinary (${res.status})`, data, !res.ok);
+      if (res.ok) {
+        renderGalleryItems(data.items);
+      }
+    }
+
     function selectImage(imageId) {
       captureImageIdFromResponse({ imageId });
       inspectImageById();
@@ -515,14 +610,26 @@
       const res = await fetch(`${API_BASE}/images/${imageId}`, { headers: getHeaders(false) });
       const data = await res.json();
       logResponse(`GET /images/${imageId} (${res.status})`, data, !res.ok);
-
       if (res.ok) {
         renderUC03Detail(data);
       } else {
         document.getElementById("uc03PreviewBox").innerHTML = `
-          <div class="p-4 text-center text-xs text-rose-400 font-semibold">
-            ${data.detail || "Không thể tải chi tiết ảnh"}
-          </div>
+          <div class="p-4 text-center text-xs text-rose-400 font-semibold">${data.detail || "Lỗi truy cập"}</div>
+        `;
+      }
+    }
+
+    async function inspectCloudinaryById() {
+      const imageId = document.getElementById("inspectImageIdInput").value.trim() || currentImageId;
+      if (!imageId) return alert("Chưa có imageId!");
+      const res = await fetch(`${API_BASE}/images/cloudinary/${imageId}`, { headers: getHeaders(false) });
+      const data = await res.json();
+      logResponse(`GET /images/cloudinary/${imageId} (${res.status})`, data, !res.ok);
+      if (res.ok) {
+        renderUC03Detail(data);
+      } else {
+        document.getElementById("uc03PreviewBox").innerHTML = `
+          <div class="p-4 text-center text-xs text-rose-400 font-semibold">${data.detail || "Lỗi truy cập"}</div>
         `;
       }
     }
