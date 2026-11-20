@@ -11,10 +11,10 @@ class Settings(BaseSettings):
     FIREBASE_PROJECT_ID: str = "image-processing-project-ea23d"
     FIREBASE_STORAGE_BUCKET: str = "image-processing-project-ea23d.firebasestorage.app"
 
-    CLOUDINARY_CLOUD_NAME: str = "znawrd5q"
+    CLOUDINARY_CLOUD_NAME: str = "zftcbu1g"
     CLOUDINARY_UPLOAD_PRESET: str = "serverless_image_preset"
-    CLOUDINARY_API_KEY: str = "325155291857765"
-    CLOUDINARY_API_SECRET: str = "rKeprzW5vQkeDixIZt_WW1aDVZQ"
+    CLOUDINARY_API_KEY: str = "586199856335625"
+    CLOUDINARY_API_SECRET: str = "TbcY9wnHjOwWHIeF0wniash9mGA"
 
     GOOGLE_SCOPES: list[str] = [
         "openid",
