@@ -1,18 +1,19 @@
 ﻿import imageCompression from 'browser-image-compression';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { storage, db } from '../firebase';
+
+const CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || 'zftcbu1g';
+const UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || 'serverless_image_preset';
+const CLOUDINARY_UPLOAD_URL = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`;
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
 
-function validateAndGetDimensions(file) {
+export function validateAndGetDimensions(file) {
   return new Promise((resolve, reject) => {
     if (!ALLOWED_TYPES.includes(file.type)) {
-      return reject(new Error('Định dạng không hỗ trợ (chỉ nhận JPG, PNG, WebP)'));
+      return reject(new Error('Invalid file type'));
     }
     if (file.size > MAX_SIZE_BYTES) {
-      return reject(new Error('Dung lượng ảnh vượt quá giới hạn 10MB'));
+      return reject(new Error('File too large'));
     }
 
     const url = URL.createObjectURL(file);
@@ -23,19 +24,10 @@ function validateAndGetDimensions(file) {
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error('File ảnh bị hỏng hoặc không đọc được dữ liệu'));
+      reject(new Error('Invalid image file'));
     };
     img.src = url;
   });
-}
-
-export function buildStoragePaths(uid, imageId, originalFileName) {
-  return {
-    original: `uploads/${uid}/${imageId}/${originalFileName}`,
-    thumbnail: `processed/${uid}/${imageId}/thumb.webp`,
-    medium: `processed/${uid}/${imageId}/medium.webp`,
-    webp: `processed/${uid}/${imageId}/full.webp`,
-  };
 }
 
 export async function processImageClient(file) {
@@ -68,142 +60,72 @@ export async function processImageClient(file) {
   const savedPercent = Number((((file.size - webp.size) / file.size) * 100).toFixed(1));
 
   return {
-    blobs: {
-      original: file,
-      thumbnail,
-      medium,
-      webp,
-    },
-    original: {
-      size: file.size,
-      width: dimensions.width,
-      height: dimensions.height,
-    },
+    blobs: { thumbnail, medium, webp },
+    original: { size: file.size, width: dimensions.width, height: dimensions.height },
     processedSize,
     processingMs,
     savedPercent,
   };
 }
 
-async function uploadAllVariantsToStorage(uid, imageId, fileName, blobs) {
-  if (!storage) {
-    throw new Error('Firebase Storage chưa được khởi tạo (chờ firebaseConfig)');
+// Trả về cả secure_url và public_id từ Cloudinary
+async function uploadBlobToCloudinary(blob, folder, publicId) {
+  const formData = new FormData();
+  formData.append('file', blob);
+  formData.append('upload_preset', UPLOAD_PRESET);
+  if (folder) formData.append('folder', folder);
+  if (publicId) formData.append('public_id', publicId);
+
+  const res = await fetch(CLOUDINARY_UPLOAD_URL, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error?.message || 'Cloudinary upload failed');
   }
-  const paths = buildStoragePaths(uid, imageId, fileName);
 
-  const uploadOne = async (storagePath, blob, contentType) => {
-    const fileRef = ref(storage, storagePath);
-    await uploadBytes(fileRef, blob, { contentType });
-    return await getDownloadURL(fileRef);
+  const data = await res.json();
+  return {
+    secure_url: data.secure_url,
+    public_id: data.public_id,
   };
+}
 
-  const [originalUrl, thumbnailUrl, mediumUrl, webpUrl] = await Promise.all([
-    uploadOne(paths.original, blobs.original, blobs.original.type),
-    uploadOne(paths.thumbnail, blobs.thumbnail, 'image/webp'),
-    uploadOne(paths.medium, blobs.medium, 'image/webp'),
-    uploadOne(paths.webp, blobs.webp, 'image/webp'),
+// Trả thêm 3 field thumbnailId, mediumId, webpId đúng CONTRACT mới
+export async function processAndUploadCloudinary(uid, imageId, file) {
+  const processed = await processImageClient(file);
+  const folder = `processed/${uid}/${imageId}`;
+
+  const [thumbRes, mediumRes, webpRes] = await Promise.all([
+    uploadBlobToCloudinary(processed.blobs.thumbnail, folder, 'thumb'),
+    uploadBlobToCloudinary(processed.blobs.medium, folder, 'medium'),
+    uploadBlobToCloudinary(processed.blobs.webp, folder, 'full'),
   ]);
 
   return {
-    paths,
-    urls: {
-      original: originalUrl,
-      thumbnail: thumbnailUrl,
-      medium: mediumUrl,
-      webp: webpUrl,
-    },
+    imageId,
+    fileName: file.name,
+    contentType: file.type,
+    thumbnail: thumbRes.secure_url,
+    medium: mediumRes.secure_url,
+    webp: webpRes.secure_url,
+    thumbnailId: thumbRes.public_id,
+    mediumId: mediumRes.public_id,
+    webpId: webpRes.public_id,
+    originalSize: processed.original.size,
+    processedSize: processed.processedSize,
+    processingMs: processed.processingMs,
+    width: processed.original.width,
+    height: processed.original.height,
+    savedPercent: processed.savedPercent,
   };
 }
 
-export async function processAndUploadImage(uid, imageId, file) {
-  if (!db) {
-    throw new Error('Firestore chưa được khởi tạo (chờ firebaseConfig)');
+export async function retryClient(uid, imageId, file) {
+  if (!file) {
+    throw new Error('Vui lòng chọn lại file ảnh gốc để nén và tải lên lại');
   }
-  const docRef = doc(db, 'images', imageId);
-
-  try {
-    const processed = await processImageClient(file);
-    const { paths, urls } = await uploadAllVariantsToStorage(
-      uid,
-      imageId,
-      file.name,
-      processed.blobs
-    );
-
-    await updateDoc(docRef, {
-      status: 'DONE',
-      originalPath: paths.original, // Lưu rõ đường dẫn file gốc trong uploads/{uid}/{imageId}/
-      original: processed.original,
-      variants: urls,
-      processedSize: processed.processedSize,
-      processingMs: processed.processingMs,
-      savedPercent: processed.savedPercent,
-      errorReason: null,
-      updatedAt: serverTimestamp(),
-    });
-
-    return { status: 'DONE', variants: urls, processingMs: processed.processingMs };
-  } catch (error) {
-    await updateDoc(docRef, {
-      status: 'FAILED',
-      errorReason: error.message || 'Lỗi xử lý hoặc tải ảnh lên',
-      updatedAt: serverTimestamp(),
-    });
-    throw error;
-  }
-}
-
-export async function processBatchQueue(items, onItemDone, onItemError, concurrency = 2) {
-  const queue = [...items];
-  const workers = Array.from({ length: concurrency }, async () => {
-    while (queue.length > 0) {
-      const item = queue.shift();
-      try {
-        const res = await processAndUploadImage(item.uid, item.imageId, item.file);
-        if (onItemDone) onItemDone(item.imageId, res);
-      } catch (error) {
-        if (onItemError) onItemError(item.imageId, error.message);
-      }
-    }
-  });
-  await Promise.all(workers);
-}
-
-// Đã sửa: Đọc đúng file gốc từ uploads/{uid}/{imageId}/{fileName} thay vì variants.original
-export async function retryClient(imageId, cachedFile = null) {
-  if (!db || !storage) {
-    throw new Error('Firebase chưa được khởi tạo (chờ firebaseConfig)');
-  }
-  const docRef = doc(db, 'images', imageId);
-  const snap = await getDoc(docRef);
-
-  if (!snap.exists()) {
-    throw new Error('Không tìm thấy bản ghi ảnh trên hệ thống');
-  }
-
-  const data = snap.data();
-  const uid = data.ownerId || data.userId;
-  const fileName = data.fileName;
-
-  if (!uid || !fileName) {
-    throw new Error('Thiếu thông tin uid hoặc fileName để xác định đường dẫn uploads/');
-  }
-
-  let targetFile = cachedFile;
-
-  // Nếu mất cachedFile trên RAM, lấy trực tiếp từ đường dẫn gốc uploads/{uid}/{imageId}/{fileName}
-  if (!targetFile) {
-    const rawOriginalPath = data.originalPath || `uploads/${uid}/${imageId}/${fileName}`;
-    const originalRef = ref(storage, rawOriginalPath);
-    const rawDownloadUrl = await getDownloadURL(originalRef);
-
-    const response = await fetch(rawDownloadUrl);
-    if (!response.ok) {
-      throw new Error(`Không thể tải lại ảnh gốc tại ${rawOriginalPath}`);
-    }
-    const blob = await response.blob();
-    targetFile = new File([blob], fileName, { type: blob.type || 'image/jpeg' });
-  }
-
-  return await processAndUploadImage(uid, imageId, targetFile);
+  return await processAndUploadCloudinary(uid, imageId, file);
 }
