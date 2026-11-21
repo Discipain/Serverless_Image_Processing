@@ -66,6 +66,52 @@ class GoogleDriveService:
             mapping[stage] = folder_info["folderId"]
         return mapping
 
+    def list_images_in_folder(self, uid: str, folder_id: str) -> list[dict]:
+        """Đọc danh sách file ảnh (jpeg/png/webp) nằm trong một thư mục Google Drive cụ thể."""
+        drive_service = self._get_drive_client(uid)
+        query = (
+            f"'{folder_id}' in parents and trashed=false and "
+            "(mimeType='image/jpeg' or mimeType='image/png' or mimeType='image/webp')"
+        )
+        results = (
+            drive_service.files()
+            .list(
+                q=query,
+                pageSize=100,
+                fields="files(id, name, mimeType, size, createdTime, modifiedTime, webViewLink)",
+            )
+            .execute()
+        )
+        return results.get("files", [])
+
+    def list_all_pipeline_images(self, uid: str, root_folder_id: str | None = None) -> list[dict]:
+        """Tự động quét và đọc toàn bộ ảnh từ 3 thư mục upload/, processing/, processed/ trên Drive."""
+        folders = self.ensure_pipeline_folders(uid, root_folder_id)
+        stage_to_status = {
+            "upload": "PENDING",
+            "processing": "PROCESSING",
+            "processed": "DONE",
+        }
+
+        collected: list[dict] = []
+        for stage in self.STAGE_FOLDERS:
+            folder_id = folders[stage]
+            files = self.list_images_in_folder(uid, folder_id)
+            for f in files:
+                collected.append({
+                    "driveFileId": f["id"],
+                    "name": f["name"],
+                    "mimeType": f.get("mimeType", "image/jpeg"),
+                    "sizeBytes": int(f.get("size", 0)),
+                    "stage": stage,
+                    "status": stage_to_status[stage],
+                    "webViewLink": f.get("webViewLink", ""),
+                    "createdTime": f.get("createdTime"),
+                    "modifiedTime": f.get("modifiedTime"),
+                    "pipelineFolders": folders,
+                })
+        return collected
+
     def upload_bytes_to_folder(
         self,
         uid: str,
@@ -113,7 +159,6 @@ class GoogleDriveService:
         }
 
     def download_file_bytes(self, uid: str, file_id: str) -> tuple[bytes, str]:
-        """Tải nội dung nhị phân và mimeType của file từ Google Drive để hiển thị trên UI."""
         drive_service = self._get_drive_client(uid)
         meta = drive_service.files().get(fileId=file_id, fields="mimeType").execute()
         mime_type = meta.get("mimeType", "image/jpeg")

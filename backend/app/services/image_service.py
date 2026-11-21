@@ -1,9 +1,7 @@
-import io
 import os
 import uuid
 from datetime import datetime, timezone
 from typing import Any
-from PIL import Image
 from app.config import settings
 from app.exceptions import (
     InvalidFileException,
@@ -51,9 +49,6 @@ def verifyOwner(doc: dict[str, Any], uid: str) -> None:
 
 
 class ImageService:
-    _raw_file_cache: dict[str, bytes] = {}
-
-    # UC01: getUploadUrl / requestUpload
     def requestUpload(
         self,
         uid: str,
@@ -82,27 +77,22 @@ class ImageService:
             "storagePath": f"upload/{uid}/{image_id}{ext}",
             "driveFileId": drive_file_id,
             "cloudinaryPublicId": None,
-            "previewUrl": None,
+            "previewUrl": f"/images/preview/{drive_file_id}" if drive_file_id else None,
             "pipelineFolders": pipeline_folders or {},
             "variants": {
                 "thumbnail": None,
                 "medium": None,
                 "webp": None,
             },
+            "processingMs": None,
             "createdAt": now,
             "updatedAt": now,
         }
         image_repo.save(doc)
 
-        upload_endpoint = (
-            f"https://api.cloudinary.com/v1_1/{settings.CLOUDINARY_CLOUD_NAME}/image/upload"
-            if provider == "cloudinary"
-            else f"https://storage.googleapis.com/upload/uploads/{uid}/{image_id}{ext}?mockSignedToken=1"
-        )
-
         return {
             "imageId": image_id,
-            "uploadUrl": upload_endpoint,
+            "uploadUrl": f"https://api.cloudinary.com/v1_1/{settings.CLOUDINARY_CLOUD_NAME}/image/upload",
             "cloudinaryConfig": {
                 "cloudName": settings.CLOUDINARY_CLOUD_NAME,
                 "uploadPreset": settings.CLOUDINARY_UPLOAD_PRESET,
@@ -112,200 +102,156 @@ class ImageService:
             "image": doc,
         }
 
-    # UC01 + UC02 (Cloudinary): Upload ảnh lên Cloudinary & sinh variants tự động
-    def uploadAndProcessCloudinary(
+    def confirmCloudinaryUpload(
         self,
         uid: str,
-        filename: str,
-        content_type: str,
-        file_bytes: bytes,
+        image_id: str,
+        thumbnail: str,
+        medium: str,
+        webp: str,
+        processing_ms: int | float,
+        filename: str | None = None,
+        content_type: str | None = None,
+        size_bytes: int | None = None,
     ) -> dict[str, Any]:
-        checkFile(filename=filename, content_type=content_type, size_bytes=len(file_bytes))
+        if not thumbnail or not medium or not webp:
+            raise InvalidFileException("Thiếu đủ 3 link biến thể: thumbnail, medium, webp.")
 
-        image_id = createImageId()
+        if filename is not None or content_type is not None or size_bytes is not None:
+            checkFile(
+                filename=filename or "confirmed_image.webp",
+                content_type=content_type or "image/webp",
+                size_bytes=size_bytes if size_bytes is not None else 1,
+            )
+
+        existing = image_repo.get_by_id(image_id)
         now = datetime.now(timezone.utc).isoformat()
 
-        doc = {
-            "imageId": image_id,
-            "ownerId": uid,
-            "provider": "cloudinary",
-            "originalName": filename,
-            "mimeType": content_type,
-            "sizeBytes": len(file_bytes),
-            "status": "PROCESSING",
-            "currentFolder": "processing",
-            "storagePath": f"processing/{uid}/{image_id}",
-            "driveFileId": None,
-            "cloudinaryPublicId": None,
-            "previewUrl": None,
-            "pipelineFolders": {},
-            "variants": {
-                "thumbnail": None,
-                "medium": None,
-                "webp": None,
-            },
-            "createdAt": now,
-            "updatedAt": now,
-        }
-        image_repo.save(doc)
-
-        up_res = cloudinary_service.upload_image(
-            file_bytes=file_bytes,
-            filename=filename,
-            public_id=image_id,
-            folder=f"uploads/{uid}",
-        )
-
-        doc["status"] = "COMPLETED"
-        doc["currentFolder"] = "processed"
-        doc["storagePath"] = f"processed/{uid}/{image_id}"
-        doc["cloudinaryPublicId"] = up_res["publicId"]
-        doc["previewUrl"] = up_res["secureUrl"]
-        doc["variants"] = up_res["variants"]
-        doc["updatedAt"] = datetime.now(timezone.utc).isoformat()
-        image_repo.save(doc)
-
-        return {
-            "imageId": image_id,
-            "cloudinary": up_res,
-            "image": doc,
-        }
-
-    # UC02 (Cloudinary): Kích hoạt tạo/làm mới variants từ public_id đã có trên Cloudinary
-    def processCloudinaryImage(self, uid: str, image_id: str) -> dict[str, Any]:
-        doc = self.getImage(uid, image_id)
-        public_id = doc.get("cloudinaryPublicId") or f"uploads/{uid}/{image_id}"
-
-        doc["status"] = "PROCESSING"
-        doc["currentFolder"] = "processing"
-        doc["updatedAt"] = datetime.now(timezone.utc).isoformat()
-        image_repo.save(doc)
-
-        variants = cloudinary_service.build_variants(public_id)
-        doc["cloudinaryPublicId"] = public_id
-        doc["variants"] = variants
-        doc["status"] = "COMPLETED"
-        doc["currentFolder"] = "processed"
-        doc["storagePath"] = f"processed/{uid}/{image_id}"
-        doc["updatedAt"] = datetime.now(timezone.utc).isoformat()
-        image_repo.save(doc)
-        return doc
-
-    def uploadAndInitPipeline(
-        self,
-        uid: str,
-        filename: str,
-        content_type: str,
-        file_bytes: bytes,
-        root_folder_id: str | None = None,
-    ) -> dict[str, Any]:
-        checkFile(filename=filename, content_type=content_type, size_bytes=len(file_bytes))
-
-        folders = google_drive_service.ensure_pipeline_folders(uid, root_folder_id)
-        drive_res = google_drive_service.upload_bytes_to_folder(
-            uid=uid,
-            filename=filename,
-            content_type=content_type,
-            file_bytes=file_bytes,
-            folder_id=folders["upload"],
-        )
-
-        result = self.requestUpload(
-            uid=uid,
-            filename=filename,
-            content_type=content_type,
-            size_bytes=len(file_bytes),
-            provider="google_drive",
-            drive_file_id=drive_res["driveFileId"],
-            pipeline_folders=folders,
-        )
-        image_id = result["image"]["imageId"]
-        result["image"]["previewUrl"] = f"/images/preview/{drive_res['driveFileId']}"
-        image_repo.save(result["image"])
-        self._raw_file_cache[image_id] = file_bytes
-        result["driveWebViewLink"] = drive_res["webViewLink"]
-        return result
-
-    def moveToProcessing(self, uid: str, image_id: str) -> dict[str, Any]:
-        doc = self.getImage(uid, image_id)
-        folders = doc.get("pipelineFolders", {})
-        drive_file_id = doc.get("driveFileId")
-
-        if drive_file_id and folders.get("processing"):
-            google_drive_service.move_file_to_folder(
-                uid=uid,
-                file_id=drive_file_id,
-                target_folder_id=folders["processing"],
-            )
-
-        doc["status"] = "PROCESSING"
-        doc["currentFolder"] = "processing"
-        doc["storagePath"] = f"processing/{uid}/{os.path.basename(doc['storagePath'])}"
-        doc["updatedAt"] = datetime.now(timezone.utc).isoformat()
-        image_repo.save(doc)
-        return doc
-
-    def completeProcessing(self, uid: str, image_id: str) -> dict[str, Any]:
-        doc = self.getImage(uid, image_id)
-        if doc.get("provider") == "cloudinary":
-            return self.processCloudinaryImage(uid=uid, image_id=image_id)
-
-        folders = doc.get("pipelineFolders", {})
-        drive_file_id = doc.get("driveFileId")
-        processed_folder_id = folders.get("processed")
-
-        raw_bytes = self._raw_file_cache.get(image_id)
-        variant_urls = {
-            "thumbnail": None,
-            "medium": None,
-            "webp": None,
-        }
-
-        if raw_bytes and processed_folder_id:
-            img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
-            base_name = os.path.splitext(doc["originalName"])[0]
-
-            specs = {
-                "thumbnail": (200, 200),
-                "medium": (800, 800),
-                "webp": img.size,
+        if existing:
+            verifyOwner(existing, uid)
+            doc = existing
+        else:
+            doc = {
+                "imageId": image_id,
+                "ownerId": uid,
+                "provider": "cloudinary",
+                "originalName": filename or f"{image_id}.webp",
+                "mimeType": content_type or "image/webp",
+                "sizeBytes": size_bytes or 0,
+                "currentFolder": "processed",
+                "storagePath": f"processed/{uid}/{image_id}.webp",
+                "driveFileId": None,
+                "cloudinaryPublicId": f"uploads/{uid}/{image_id}",
+                "pipelineFolders": {},
+                "createdAt": now,
             }
 
-            for variant_key, max_size in specs.items():
-                resized = img.copy()
-                resized.thumbnail(max_size)
-                buf = io.BytesIO()
-                resized.save(buf, format="WEBP", quality=85)
-                buf.seek(0)
-
-                up_res = google_drive_service.upload_bytes_to_folder(
-                    uid=uid,
-                    filename=f"{base_name}_{variant_key}.webp",
-                    content_type="image/webp",
-                    file_bytes=buf.read(),
-                    folder_id=processed_folder_id,
-                )
-                variant_urls[variant_key] = f"/images/preview/{up_res['driveFileId']}"
-
-        if drive_file_id and processed_folder_id:
-            move_res = google_drive_service.move_file_to_folder(
-                uid=uid,
-                file_id=drive_file_id,
-                target_folder_id=processed_folder_id,
-            )
-            doc["driveWebViewLink"] = move_res.get("webViewLink", "")
-
-        doc["status"] = "COMPLETED"
+        doc["status"] = "DONE"
         doc["currentFolder"] = "processed"
-        doc["storagePath"] = f"processed/{uid}/{os.path.basename(doc['storagePath'])}"
-        doc["variants"] = variant_urls
-        doc["updatedAt"] = datetime.now(timezone.utc).isoformat()
-        image_repo.save(doc)
+        doc["previewUrl"] = webp or medium or thumbnail
+        doc["variants"] = {
+            "thumbnail": thumbnail,
+            "medium": medium,
+            "webp": webp,
+        }
+        doc["processingMs"] = processing_ms
+        doc["updatedAt"] = now
 
-        self._raw_file_cache.pop(image_id, None)
+        image_repo.save(doc)
         return doc
 
-    # UC03: getImage / getImageStatus
+    def syncExternalImages(self, uid: str, root_folder_id: str | None = None) -> dict[str, int]:
+        """
+        Tự động đọc ảnh từ cả Google Drive folder và Cloudinary của user,
+        ánh xạ sang chuẩn CONTRACT và lưu vào repository nếu chưa có.
+        """
+        existing_docs = image_repo.list_by_owner(uid)
+        known_drive_ids = {d.get("driveFileId") for d in existing_docs if d.get("driveFileId")}
+        known_cloud_ids = {
+            d.get("cloudinaryPublicId") for d in existing_docs if d.get("cloudinaryPublicId")
+        }
+
+        added_drive = 0
+        added_cloudinary = 0
+        now = datetime.now(timezone.utc).isoformat()
+
+        # 1. Tự động đọc ảnh trong Google Drive folder (nếu user đã kết nối Drive)
+        try:
+            drive_files = google_drive_service.list_all_pipeline_images(uid, root_folder_id)
+            for df in drive_files:
+                d_id = df["driveFileId"]
+                if d_id in known_drive_ids:
+                    continue
+                img_id = f"drive_{d_id}"
+                preview = f"/images/preview/{d_id}"
+                doc = {
+                    "imageId": img_id,
+                    "ownerId": uid,
+                    "provider": "google_drive",
+                    "originalName": df["name"],
+                    "mimeType": df["mimeType"],
+                    "sizeBytes": df["sizeBytes"],
+                    "status": df["status"],
+                    "currentFolder": df["stage"],
+                    "storagePath": f"{df['stage']}/{uid}/{df['name']}",
+                    "driveFileId": d_id,
+                    "cloudinaryPublicId": None,
+                    "previewUrl": preview,
+                    "pipelineFolders": df["pipelineFolders"],
+                    "variants": {
+                        "thumbnail": preview if df["stage"] == "processed" else None,
+                        "medium": preview if df["stage"] == "processed" else None,
+                        "webp": preview if df["stage"] == "processed" else None,
+                    },
+                    "processingMs": None,
+                    "createdAt": df.get("createdTime") or now,
+                    "updatedAt": df.get("modifiedTime") or now,
+                }
+                image_repo.save(doc)
+                known_drive_ids.add(d_id)
+                added_drive += 1
+        except Exception:
+            # Bỏ qua nếu user chưa đăng nhập Google Drive
+            pass
+
+        # 2. Tự động đọc ảnh trên Cloudinary (thư mục uploads/{uid} hoặc toàn bộ cloud)
+        cloud_files = cloudinary_service.list_images(prefix=f"uploads/{uid}")
+        if not cloud_files:
+            cloud_files = cloudinary_service.list_images(prefix="")
+
+        for cf in cloud_files:
+            pub_id = cf["publicId"]
+            if pub_id in known_cloud_ids:
+                continue
+            img_id = pub_id.split("/")[-1]
+            doc = {
+                "imageId": img_id,
+                "ownerId": uid,
+                "provider": "cloudinary",
+                "originalName": cf["filename"],
+                "mimeType": cf["mimeType"],
+                "sizeBytes": cf["sizeBytes"],
+                "status": "DONE",
+                "currentFolder": "processed",
+                "storagePath": f"processed/{uid}/{cf['filename']}",
+                "driveFileId": None,
+                "cloudinaryPublicId": pub_id,
+                "previewUrl": cf["secureUrl"],
+                "pipelineFolders": {},
+                "variants": cf["variants"],
+                "processingMs": None,
+                "createdAt": cf.get("createdAt") or now,
+                "updatedAt": now,
+            }
+            image_repo.save(doc)
+            known_cloud_ids.add(pub_id)
+            added_cloudinary += 1
+
+        return {
+            "syncedFromGoogleDrive": added_drive,
+            "syncedFromCloudinary": added_cloudinary,
+        }
+
     def getImage(self, uid: str, image_id: str) -> dict[str, Any]:
         doc = image_repo.get_by_id(image_id)
         if not doc:
@@ -313,8 +259,10 @@ class ImageService:
         verifyOwner(doc, uid)
         return doc
 
-    # UC04: listImages
-    def listImages(self, uid: str) -> dict[str, Any]:
+    def listImages(self, uid: str, auto_sync: bool = True, root_folder_id: str | None = None) -> dict[str, Any]:
+        if auto_sync:
+            self.syncExternalImages(uid=uid, root_folder_id=root_folder_id)
+
         items = image_repo.list_by_owner(uid)
         return {
             "ownerId": uid,

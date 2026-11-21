@@ -8,7 +8,10 @@ from app.repositories.token_repository import token_repo
 
 
 class GoogleOAuthService:
-    def _create_flow(self, state: str | None = None) -> Flow:
+    # Lưu tạm code_verifier theo state (dùng Redis/Firestore nếu chạy multi-worker)
+    _pkce_verifiers: dict[str, str] = {}
+
+    def _create_flow(self, state: str | None = None, code_verifier: str | None = None) -> Flow:
         if not os.path.exists(settings.GOOGLE_CLIENT_SECRETS_FILE):
             raise FileNotFoundError(
                 f"Không tìm thấy {settings.GOOGLE_CLIENT_SECRETS_FILE}. Vui lòng thêm file cấu hình OAuth2."
@@ -17,8 +20,11 @@ class GoogleOAuthService:
             settings.GOOGLE_CLIENT_SECRETS_FILE,
             scopes=settings.GOOGLE_SCOPES,
             state=state,
+            autogenerate_code_verifier=True,
         )
         flow.redirect_uri = settings.GOOGLE_REDIRECT_URI
+        if code_verifier:
+            flow.code_verifier = code_verifier
         return flow
 
     def get_authorization_url(self) -> tuple[str, str]:
@@ -28,14 +34,16 @@ class GoogleOAuthService:
             include_granted_scopes="true",
             prompt="consent",
         )
+        if getattr(flow, "code_verifier", None):
+            self._pkce_verifiers[state] = flow.code_verifier
         return auth_url, state
 
     def exchange_code_for_tokens(self, code: str, state: str | None = None) -> dict[str, Any]:
-        flow = self._create_flow(state=state)
+        verifier = self._pkce_verifiers.pop(state, None) if state else None
+        flow = self._create_flow(state=state, code_verifier=verifier)
         flow.fetch_token(code=code)
         creds = flow.credentials
 
-        # Lấy thông tin profile Google để định danh uid
         oauth2_service = build("oauth2", "v2", credentials=creds)
         user_info = oauth2_service.userinfo().get().execute()
         uid = user_info["id"]
