@@ -86,10 +86,10 @@ Content-Type: application/json
 ```
 
 Validate Backend (bắt buộc):
-- Đủ 9 field trên, thiếu → `400`.
+- Bắt buộc 6 field: imageId, thumbnail, medium, webp, originalSize, processingMs. Thiếu 1 trong 6 → 400. Tùy chọn 6 field: fileName, width, height, thumbnailId, mediumId, webpId — thiếu thì Backend tự điền mặc định, không báo lỗi.
 - 3 URL phải chứa `cloudName` của nhóm (`zftcbu1g`), URL lạ → `400`.
 - `originalSize <= 10MB`, sai định dạng → `400`.
-- `imageId` đã `DONE` rồi → trả luôn `200` cũ (idempotent), không ghi đè.
+- `imageId` đã `DONE` rồi → trả luôn `200` cũ (idempotent), không ghi đè. imageId do Frontend tạo bằng crypto.randomUUID(), tạo 1 lần trước khi nén. Backend coi là khóa chống trùng: nhận trùng thì trả bản cũ.
 
 ### 3.2. Response 200
 
@@ -100,14 +100,17 @@ Validate Backend (bắt buộc):
   "ownerId": "abc-uid-1",
   "variants": {
     "thumbnail": "https://res.cloudinary.com/.../thumb.webp",
+    "thumbnailId": "abc/thumb",
     "medium": "https://res.cloudinary.com/.../medium.webp",
-    "webp": "https://res.cloudinary.com/.../full.webp"
+    "mediumId": "abc/medium",
+    "webp": "https://res.cloudinary.com/.../full.webp",
+    "webpId": "abc/full",
   },
   "processingMs": 1840,
   "savedPercent": 83.2
 }
 ```
-
+3 field *Id là tùy chọn nhưng khuyên gửi, lấy từ public_id Cloudinary trả về. Dùng để Backend xác minh đúng cloud và xóa ảnh khi DELETE. Thiếu vẫn chạy, nhưng xóa phải tự tách từ URL.
 Đồng thời ghi Firestore `images/{imageId}`: `status=DONE`, `ownerId`, `original{size,width,height}`, `variants`, `processedSize`, `processingMs`, `savedPercent`, `errorReason=null`, `updatedAt=serverTimestamp`.
 
 ### 3.3. Lỗi
