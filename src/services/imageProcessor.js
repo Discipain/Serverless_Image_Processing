@@ -68,6 +68,7 @@ export async function processImageClient(file) {
   };
 }
 
+// Trả về cả secure_url và public_id từ Cloudinary
 async function uploadBlobToCloudinary(blob, folder, publicId) {
   const formData = new FormData();
   formData.append('file', blob);
@@ -86,14 +87,18 @@ async function uploadBlobToCloudinary(blob, folder, publicId) {
   }
 
   const data = await res.json();
-  return data.secure_url;
+  return {
+    secure_url: data.secure_url,
+    public_id: data.public_id,
+  };
 }
 
+// Trả thêm 3 field thumbnailId, mediumId, webpId đúng CONTRACT mới
 export async function processAndUploadCloudinary(uid, imageId, file) {
   const processed = await processImageClient(file);
   const folder = `processed/${uid}/${imageId}`;
 
-  const [thumbnailUrl, mediumUrl, webpUrl] = await Promise.all([
+  const [thumbRes, mediumRes, webpRes] = await Promise.all([
     uploadBlobToCloudinary(processed.blobs.thumbnail, folder, 'thumb'),
     uploadBlobToCloudinary(processed.blobs.medium, folder, 'medium'),
     uploadBlobToCloudinary(processed.blobs.webp, folder, 'full'),
@@ -103,9 +108,12 @@ export async function processAndUploadCloudinary(uid, imageId, file) {
     imageId,
     fileName: file.name,
     contentType: file.type,
-    thumbnail: thumbnailUrl,
-    medium: mediumUrl,
-    webp: webpUrl,
+    thumbnail: thumbRes.secure_url,
+    medium: mediumRes.secure_url,
+    webp: webpRes.secure_url,
+    thumbnailId: thumbRes.public_id,
+    mediumId: mediumRes.public_id,
+    webpId: webpRes.public_id,
     originalSize: processed.original.size,
     processedSize: processed.processedSize,
     processingMs: processed.processingMs,
