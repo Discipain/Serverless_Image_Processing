@@ -2,32 +2,35 @@
 <html lang="vi">
 <head>
   <meta charset="UTF-8" />
-  <title>Test Nén Ảnh - Dũng (feat/process)</title>
+  <title>Test Nén & Upload 3 Link Cloudinary - Dũng (feat/process)</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; }
-    .box { border: 2px dashed #888; padding: 24px; border-radius: 8px; text-align: center; margin-bottom: 20px; }
-    pre { background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto; }
+    body { font-family: system-ui, sans-serif; max-width: 780px; margin: 32px auto; padding: 0 16px; }
+    .box { border: 2px dashed #4f46e5; padding: 24px; border-radius: 8px; text-align: center; margin-bottom: 16px; background: #f8fafc; }
+    pre { background: #1e1e1e; color: #4ade80; padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
     .preview { display: flex; gap: 16px; margin-top: 16px; flex-wrap: wrap; }
-    .preview img { max-height: 160px; border: 1px solid #ccc; border-radius: 4px; }
+    .preview div { text-align: center; font-size: 12px; }
+    .preview img { max-height: 160px; border: 1px solid #ccc; border-radius: 4px; display: block; margin-bottom: 4px; }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
 </head>
 <body>
-  <h2>Kiểm thử Module Xử lý Ảnh Client-side</h2>
+  <h2>Test Client-side Compress + Upload 3 Link Cloudinary</h2>
   <div class="box">
     <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp" />
   </div>
-  <pre id="output">Chọn 1 ảnh (JPG, PNG, WebP <= 10MB) để xem thông số nén...</pre>
+  <pre id="output">Chọn 1 ảnh ~2MB (JPG, PNG, WebP <= 10MB) để nén và upload thẳng lên Cloudinary...</pre>
   <div class="preview" id="preview"></div>
 
-  <script type="module">
-    import imageCompression from 'https://esm.sh/browser-image-compression@2.0.2';
-
+  <script>
+    const CLOUD_NAME = 'zftcbu1g';
+    const UPLOAD_PRESET = 'serverless_image_preset';
+    const UPLOAD_URL = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`;
     const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
     const MAX_SIZE_BYTES = 10 * 1024 * 1024;
 
     function getDimensions(file) {
       return new Promise((resolve, reject) => {
-        if (!ALLOWED_TYPES.includes(file.type)) return reject(new Error('Sai định dạng ảnh'));
+        if (!ALLOWED_TYPES.includes(file.type)) return reject(new Error('Sai định dạng (chỉ nhận JPG, PNG, WebP)'));
         if (file.size > MAX_SIZE_BYTES) return reject(new Error('Ảnh vượt quá 10MB'));
         const url = URL.createObjectURL(file);
         const img = new Image();
@@ -37,39 +40,76 @@
       });
     }
 
+    async function uploadCloudinary(blob, folder, publicId) {
+      const fd = new FormData();
+      fd.append('file', blob);
+      fd.append('upload_preset', UPLOAD_PRESET);
+      fd.append('folder', folder);
+      fd.append('public_id', publicId);
+
+      const res = await fetch(UPLOAD_URL, { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || 'Upload Cloudinary thất bại');
+      return data.secure_url;
+    }
+
     document.getElementById('fileInput').addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
       const out = document.getElementById('output');
       const preview = document.getElementById('preview');
-      out.textContent = 'Đang nén 3 phiên bản bằng Web Worker...';
+      out.textContent = '1/2 Đang nén 3 phiên bản (thumb 200, medium 800, full webp)...';
       preview.innerHTML = '';
 
       try {
         const start = performance.now();
         const dim = await getDimensions(file);
+
         const [thumb, medium, webp] = await Promise.all([
-          imageCompression(file, { maxWidthOrHeight: 200, fileType: 'image/webp', initialQuality: 0.75, useWebWorker: true }),
-          imageCompression(file, { maxWidthOrHeight: 800, fileType: 'image/webp', initialQuality: 0.8, useWebWorker: true }),
-          imageCompression(file, { maxWidthOrHeight: 4096, fileType: 'image/webp', initialQuality: 0.85, useWebWorker: true }),
+          imageCompression(file, { maxWidthOrHeight: 200, fileType: 'image/webp', initialQuality: 0.75, useWebWorker: false }),
+          imageCompression(file, { maxWidthOrHeight: 800, fileType: 'image/webp', initialQuality: 0.8, useWebWorker: false }),
+          imageCompression(file, { maxWidthOrHeight: 4096, fileType: 'image/webp', initialQuality: 0.85, useWebWorker: false }),
         ]);
-        const ms = Math.round(performance.now() - start);
-        const saved = (((file.size - webp.size) / file.size) * 100).toFixed(1);
 
-        out.textContent = JSON.stringify({
-          tenFile: file.name,
-          kichThuocGoc: `${dim.width}x${dim.height}`,
-          dungLuongGoc: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
-          dungLuongFullWebp: `${(webp.size / (1024 * 1024)).toFixed(2)} MB`,
-          tietKiem: `${saved}%`,
-          thoiGianNen: `${ms} ms`
-        }, null, 2);
+        const processingMs = Math.round(performance.now() - start);
+        const savedPercent = Number((((file.size - webp.size) / file.size) * 100).toFixed(1));
 
-        [thumb, medium, webp].forEach((blob, idx) => {
+        out.textContent = `2/2 Nén xong trong ${processingMs} ms! Đang upload 3 file lên Cloudinary (${CLOUD_NAME})...`;
+
+        const testFolder = `processed/test-dung/${Date.now()}`;
+        const [thumbnailUrl, mediumUrl, webpUrl] = await Promise.all([
+          uploadCloudinary(thumb, testFolder, 'thumb'),
+          uploadCloudinary(medium, testFolder, 'medium'),
+          uploadCloudinary(webp, testFolder, 'full'),
+        ]);
+
+        const resultLog = {
+          status: 'UPLOADED_CLOUDINARY_OK',
+          fileName: file.name,
+          originalSize: `${(file.size / (1024 * 1024)).toFixed(2)} MB (${file.size} bytes)`,
+          processedSize: `${((thumb.size + medium.size + webp.size) / 1024).toFixed(1)} KB`,
+          processingMs: processingMs,
+          savedPercent: `${savedPercent}%`,
+          variants: {
+            thumbnail: thumbnailUrl,
+            medium: mediumUrl,
+            webp: webpUrl
+          }
+        };
+
+        out.textContent = JSON.stringify(resultLog, null, 2);
+
+        [
+          { url: thumbnailUrl, label: `Thumb 200px (${(thumb.size / 1024).toFixed(1)} KB)` },
+          { url: mediumUrl, label: `Medium 800px (${(medium.size / 1024).toFixed(1)} KB)` },
+          { url: webpUrl, label: `Full WebP (${(webp.size / 1024).toFixed(1)} KB)` }
+        ].forEach(item => {
+          const wrap = document.createElement('div');
           const img = document.createElement('img');
-          img.src = URL.createObjectURL(blob);
-          img.title = ['Thumb 200px', 'Medium 800px', 'Full WebP'][idx];
-          preview.appendChild(img);
+          img.src = item.url;
+          wrap.appendChild(img);
+          wrap.appendChild(document.createTextNode(item.label));
+          preview.appendChild(wrap);
         });
       } catch (err) {
         out.textContent = 'LỖI: ' + err.message;
