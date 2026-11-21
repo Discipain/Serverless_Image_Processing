@@ -86,7 +86,7 @@ Content-Type: application/json
 ```
 
 Validate Backend (bắt buộc):
-- Bắt buộc 6 field: imageId, thumbnail, medium, webp, originalSize, processingMs. Thiếu 1 trong 6 → 400. Tùy chọn 6 field: fileName, width, height, thumbnailId, mediumId, webpId — thiếu thì Backend tự điền mặc định, không báo lỗi.
+- Bắt buộc 6 field: imageId, thumbnail, medium, webp, originalSize, processingMs. Thiếu 1 trong 6 → 400. Tùy chọn 7 field: fileName, width, height, thumbnailId, mediumId, webpId, processedSize — thiếu thì Backend tự điền mặc định, không báo lỗi.
 - 3 URL phải chứa `cloudName` của nhóm (`zftcbu1g`), URL lạ → `400`.
 - `originalSize <= 10MB`, sai định dạng → `400`.
 - `imageId` đã `DONE` rồi → trả luôn `200` cũ (idempotent), không ghi đè. imageId do Frontend tạo bằng crypto.randomUUID(), tạo 1 lần trước khi nén. Backend coi là khóa chống trùng: nhận trùng thì trả bản cũ.
