@@ -14,16 +14,16 @@ class RequestUploadPayload(BaseModel):
     contentType: str
     sizeBytes: int
 
-
 class CloudinaryConfirmPayload(BaseModel):
     imageId: str
-    thumbnail: str
-    medium: str
-    webp: str
+    fileName: str
+    originalSize: int
+    processedSize: int
+    thumbnailPublicId: str
+    mediumPublicId: str
+    webpPublicId: str
     processingMs: int | float = 0
-    filename: str | None = None
     contentType: str | None = None
-    sizeBytes: int | None = None
 
 
 class CreateFolderPayload(BaseModel):
@@ -54,15 +54,15 @@ def cloudinary_confirm(
     return image_service.confirmCloudinaryUpload(
         uid=uid,
         image_id=payload.imageId,
-        thumbnail=payload.thumbnail,
-        medium=payload.medium,
-        webp=payload.webp,
+        file_name=payload.fileName,
+        original_size=payload.originalSize,
+        processed_size=payload.processedSize,
+        thumbnail_public_id=payload.thumbnailPublicId,
+        medium_public_id=payload.mediumPublicId,
+        webp_public_id=payload.webpPublicId,
         processing_ms=payload.processingMs,
-        filename=payload.filename,
         content_type=payload.contentType,
-        size_bytes=payload.sizeBytes,
     )
-
 
 @router.post("/upload-url")
 def get_upload_url(

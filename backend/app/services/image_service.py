@@ -106,23 +106,30 @@ class ImageService:
         self,
         uid: str,
         image_id: str,
-        thumbnail: str,
-        medium: str,
-        webp: str,
-        processing_ms: int | float,
-        filename: str | None = None,
+        file_name: str,
+        original_size: int,
+        processed_size: int,
+        thumbnail_public_id: str,
+        medium_public_id: str,
+        webp_public_id: str,
+        processing_ms: int | float = 0,
         content_type: str | None = None,
-        size_bytes: int | None = None,
     ) -> dict[str, Any]:
-        if not thumbnail or not medium or not webp:
-            raise InvalidFileException("Thiếu đủ 3 link biến thể: thumbnail, medium, webp.")
-
-        if filename is not None or content_type is not None or size_bytes is not None:
-            checkFile(
-                filename=filename or "confirmed_image.webp",
-                content_type=content_type or "image/webp",
-                size_bytes=size_bytes if size_bytes is not None else 1,
+        if not thumbnail_public_id or not medium_public_id or not webp_public_id:
+            raise InvalidFileException(
+                "Thiếu đủ 3 publicId biến thể: thumbnailPublicId, mediumPublicId, webpPublicId."
             )
+
+        checkFile(
+            filename=file_name,
+            content_type=content_type or "image/jpeg",
+            size_bytes=original_size,
+        )
+
+        cloud_base = f"https://res.cloudinary.com/{settings.CLOUDINARY_CLOUD_NAME}/image/upload"
+        thumbnail_url = f"{cloud_base}/{thumbnail_public_id}"
+        medium_url = f"{cloud_base}/{medium_public_id}"
+        webp_url = f"{cloud_base}/{webp_public_id}.webp"
 
         existing = image_repo.get_by_id(image_id)
         now = datetime.now(timezone.utc).isoformat()
@@ -135,24 +142,25 @@ class ImageService:
                 "imageId": image_id,
                 "ownerId": uid,
                 "provider": "cloudinary",
-                "originalName": filename or f"{image_id}.webp",
-                "mimeType": content_type or "image/webp",
-                "sizeBytes": size_bytes or 0,
+                "originalName": file_name,
+                "mimeType": content_type or "image/jpeg",
+                "sizeBytes": original_size,
                 "currentFolder": "processed",
-                "storagePath": f"processed/{uid}/{image_id}.webp",
+                "storagePath": f"processed/{uid}/{file_name}",
                 "driveFileId": None,
-                "cloudinaryPublicId": f"uploads/{uid}/{image_id}",
+                "cloudinaryPublicId": medium_public_id,
                 "pipelineFolders": {},
                 "createdAt": now,
             }
 
         doc["status"] = "DONE"
         doc["currentFolder"] = "processed"
-        doc["previewUrl"] = webp or medium or thumbnail
+        doc["processedSize"] = processed_size
+        doc["previewUrl"] = webp_url or medium_url or thumbnail_url
         doc["variants"] = {
-            "thumbnail": thumbnail,
-            "medium": medium,
-            "webp": webp,
+            "thumbnail": thumbnail_url,
+            "medium": medium_url,
+            "webp": webp_url,
         }
         doc["processingMs"] = processing_ms
         doc["updatedAt"] = now

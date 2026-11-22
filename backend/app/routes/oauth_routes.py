@@ -26,5 +26,6 @@ def oauth_callback(code: str = Query(...), state: str | None = Query(default=Non
         "uid": user_session["uid"],
         "email": user_session.get("email") or "",
         "name": user_session.get("name") or "",
+        "firebaseCustomToken": user_session.get("firebaseCustomToken") or "",
     })
     return RedirectResponse(url=f"{settings.FRONTEND_URL}/index.html?{params}")

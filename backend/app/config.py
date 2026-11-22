@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     FIREBASE_PROJECT_ID: str = "image-processing-project-ea23d"
     FIREBASE_STORAGE_BUCKET: str = "image-processing-project-ea23d.firebasestorage.app"
+    FIREBASE_CREDENTIALS_FILE: str = "credentials/firebase-adminsdk.json"
 
     CLOUDINARY_CLOUD_NAME: str = "zftcbu1g"
     CLOUDINARY_UPLOAD_PRESET: str = "serverless_image_preset"
