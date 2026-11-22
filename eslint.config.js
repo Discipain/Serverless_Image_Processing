@@ -28,9 +28,11 @@ export default defineConfig([
   },
   // Layered Architecture: Firebase SDK chỉ được import trong src/infrastructure (nơi khởi tạo và các adapter).
   // (Domain/Application có khối riêng bên dưới và cũng cấm Firebase.)
+  // Ngoại lệ TẠM THỜI, chỉ đúng một file: src/firebase.js là file Firebase legacy của nhánh dev (không được ứng dụng import).
+  // Chờ nhóm quyết định chuyển vào src/infrastructure/ hoặc xóa; khi đó bỏ ngoại lệ này.
   {
     files: ['src/**/*.{js,jsx}'],
-    ignores: ['src/infrastructure/**'],
+    ignores: ['src/infrastructure/**', 'src/firebase.js'],
     rules: {
       'no-restricted-imports': [
         'error',
