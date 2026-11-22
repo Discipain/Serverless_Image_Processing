@@ -5,8 +5,8 @@
 //   where ownerId == uid, orderBy createdAt desc, limit <= 20
 // ============================================================
 
-import { PAGE_SIZE } from '../../constants/image';
-import { MOCK_IMAGES } from './mockImages';
+import { PAGE_SIZE } from '../../domain/constants/imageRules';
+import { MOCK_IMAGES } from '../../infrastructure/mock/mockImages';
 
 const MOCK_DELAY_MS = 600;
 

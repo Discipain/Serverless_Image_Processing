@@ -147,4 +147,11 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
-.CLAUDE.md
+# Claude Code
+CLAUDE.md
+CLAUDE*.md
+.claude/
+prompt_frontend_react_v2.md
+# Claude Code personal configuration
+CLAUDE.local.md
+.claude/settings.local.json

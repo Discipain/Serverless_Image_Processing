@@ -1,11 +1,11 @@
 import { Navigate, Route, Routes } from 'react-router';
-import { ROUTES } from './constants/routes';
-import { ProtectedRoute } from './components/layout/ProtectedRoute';
-import { AppLayout } from './components/layout/AppLayout';
-import { LoginPage } from './pages/LoginPage';
-import { UploadPage } from './pages/UploadPage';
-import { GalleryPage } from './pages/GalleryPage';
-import { NotFoundPage } from './pages/NotFoundPage';
+import { ROUTES } from './presentation/constants/routes';
+import { ProtectedRoute } from './presentation/components/layout/ProtectedRoute';
+import { AppLayout } from './presentation/components/layout/AppLayout';
+import { LoginPage } from './presentation/pages/LoginPage';
+import { UploadPage } from './presentation/pages/UploadPage';
+import { GalleryPage } from './presentation/pages/GalleryPage';
+import { NotFoundPage } from './presentation/pages/NotFoundPage';
 
 export default function App() {
   return (

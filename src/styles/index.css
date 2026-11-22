@@ -359,6 +359,103 @@ code {
   font-size: 0.85rem;
 }
 
+.login__error {
+  text-align: left;
+}
+
+.login__error-title {
+  display: block;
+}
+
+.login__error-text {
+  margin: 4px 0 0;
+  font-size: 0.9rem;
+}
+
+.login__info {
+  margin: 16px 0 0;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+/* ===== Menu tài khoản (UID / ID token) ===== */
+.header__error {
+  color: var(--color-failed-fg);
+  font-size: 0.8rem;
+}
+
+.account {
+  position: relative;
+}
+
+.account__toggle {
+  list-style: none;
+}
+
+.account__toggle::-webkit-details-marker {
+  display: none;
+}
+
+.account__panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(340px, calc(100vw - 2 * var(--gutter)));
+  padding: 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  font-size: 0.9rem;
+}
+
+.account__line {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.account__label {
+  margin: 6px 0 0;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.account__uid {
+  display: block;
+  padding: 6px 8px;
+  background: var(--color-bg);
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+
+.account__muted {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.8rem;
+}
+
+.account__error {
+  margin: 0;
+  color: var(--color-failed-fg);
+  font-size: 0.8rem;
+}
+
+.account__btn {
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  .account__panel {
+    right: auto;
+    left: 0;
+  }
+}
+
 /* ===== Upload ===== */
 .dropzone {
   display: flex;
@@ -389,6 +486,110 @@ code {
   margin: 0 0 8px;
   color: var(--color-muted);
   font-size: 0.9rem;
+}
+
+.dropzone--active {
+  border-color: var(--color-primary);
+}
+
+/* input file ẩn khỏi màn hình nhưng vẫn truy cập được bằng bàn phím/trình đọc màn hình */
+.dropzone__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.dropzone:focus-within {
+  border-color: var(--color-primary);
+}
+
+/* ===== Upload MOCK (H4A) ===== */
+.mock-banner {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  background: var(--color-mock-bg);
+  color: var(--color-mock-fg);
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.upload-status,
+.upload-result {
+  margin-top: 16px;
+  padding: 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.upload-status--error {
+  border-color: var(--color-failed-fg);
+}
+
+.upload-status__title,
+.upload-result__title {
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+
+.upload-status__muted {
+  margin: 4px 0;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.upload-status__bar {
+  width: 100%;
+  height: 12px;
+  margin: 8px 0 4px;
+}
+
+.upload-status__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.upload-result__preview {
+  display: block;
+  max-width: 200px;
+  max-height: 200px;
+  margin: 8px 0;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+}
+
+.upload-result__list {
+  margin: 12px 0;
+}
+
+.upload-result__row {
+  display: grid;
+  grid-template-columns: minmax(120px, 200px) 1fr;
+  gap: 4px 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.upload-result__row dt {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.upload-result__row dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .upload-result__row {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ===== Gallery ===== */
