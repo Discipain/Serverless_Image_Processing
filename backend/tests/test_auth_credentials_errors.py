@@ -256,7 +256,7 @@ def test_valid_adc_and_valid_token_work_for_gallery_without_touching_cloudinary(
     real_verifier(monkeypatch, verify=lambda token: {"uid": "uid-gallery"})
     res = client.get("/images", headers={"Authorization": "Bearer valid-looking-token"})
     assert res.status_code == 200
-    assert res.json() == {"ownerId": "uid-gallery", "total": 0, "items": []}
+    assert res.json() == {"items": [], "nextCursor": None, "hasMore": False}  # CONTRACT mục 5 (INT-2)
 
 
 def test_x_user_id_still_cannot_replace_a_token_when_the_auth_service_is_up(client, monkeypatch):

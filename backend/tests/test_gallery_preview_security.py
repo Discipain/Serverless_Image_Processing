@@ -87,14 +87,15 @@ def test_user_sees_own_confirmed_image(client, cloud, drive):
     res = get_images(client, "user_A")
     assert res.status_code == 200
     assert [i["imageId"] for i in res.json()["items"]] == [IMAGE_ID]
-    assert res.json()["ownerId"] == "user_A" and res.json()["total"] == 1
+    assert [i["ownerId"] for i in res.json()["items"]] == ["user_A"]
+    assert res.json()["nextCursor"] is None and res.json()["hasMore"] is False  # CONTRACT mục 5 (INT-2)
 
 
 def test_user_b_does_not_see_user_a_images(client, cloud, drive):
     assert client.post("/images/cloudinary/confirm", headers=bearer("user_A"), json=full_payload()).status_code == 200
     res = get_images(client, "user_B")
     assert res.status_code == 200
-    assert res.json() == {"ownerId": "user_B", "total": 0, "items": []}  # gallery trống vẫn hoạt động
+    assert res.json() == {"items": [], "nextCursor": None, "hasMore": False}  # gallery trống vẫn hoạt động
 
 
 def test_get_images_never_scans_cloudinary(client, cloud, drive):
@@ -154,7 +155,7 @@ def test_owner_in_query_is_ignored(client, cloud, drive, params):
     client.post("/images/cloudinary/confirm", headers=bearer("user_A"), json=full_payload())
     res = get_images(client, "user_B", **params)
     assert res.status_code == 200
-    assert res.json()["ownerId"] == "user_B" and res.json()["items"] == []
+    assert res.json() == {"items": [], "nextCursor": None, "hasMore": False}  # B không có ảnh; tham số ownerId/uid bị bỏ qua
 
 
 def test_foreign_docs_returned_by_store_are_filtered_out(client, cloud, drive, fresh_store):

@@ -33,6 +33,22 @@ def _is_not_found(exc: BaseException) -> bool:
     return any(cls.__name__ == "NotFound" for cls in type(exc).__mro__)
 
 
+def _page_sort_key(created_at: Any, image_id: str) -> tuple:
+    """Khóa sắp xếp của Gallery: (createdAt, imageId), cùng thứ tự kiểu như Firestore (null < số < timestamp < chuỗi).
+
+    `createdAt` có thể là datetime (confirm: server timestamp) hoặc chuỗi ISO (ảnh đồng bộ từ Drive / upload-url cũ). Khóa phụ
+    `imageId` (= ID tài liệu) làm thứ tự là TOÀN PHẦN: hai ảnh cùng createdAt vẫn có vị trí cố định, không lặp/mất giữa các trang.
+    Tài liệu không có createdAt xếp cuối khi sắp xếp giảm dần (kho Firestore thật thì LOẠI chúng khỏi truy vấn `order_by`)."""
+    if isinstance(created_at, datetime):
+        value = created_at if created_at.tzinfo else created_at.replace(tzinfo=timezone.utc)
+        return (3, value, image_id)
+    if isinstance(created_at, str):
+        return (4, created_at, image_id)
+    if created_at is None:
+        return (0, 0, image_id)
+    return (5, str(created_at), image_id)
+
+
 class MemoryImageStore:
     """Kho trong RAM. CHỈ dev/test."""
 
@@ -69,6 +85,17 @@ class MemoryImageStore:
     def list_by_owner(self, owner_id: str) -> list[dict[str, Any]]:
         with self._lock:
             return [copy.deepcopy(d) for d in self._docs.values() if d.get("ownerId") == owner_id]
+
+    def list_page_by_owner(self, owner_id: str, limit: int, after: tuple[Any, str] | None = None) -> list[dict[str, Any]]:
+        """Tối đa `limit + 1` ảnh của `owner_id`, mới nhất trước (createdAt giảm dần, rồi imageId giảm dần), SAU vị trí `after`
+        = (createdAt, imageId) của ảnh cuối trang trước. Ảnh thứ `limit + 1` (nếu có) cho biết còn trang sau."""
+        with self._lock:
+            docs = [copy.deepcopy(d) for d in self._docs.values() if d.get("ownerId") == owner_id]
+        docs.sort(key=lambda d: _page_sort_key(d.get("createdAt"), str(d.get("imageId", ""))), reverse=True)
+        if after is not None:
+            boundary = _page_sort_key(after[0], after[1])
+            docs = [d for d in docs if _page_sort_key(d.get("createdAt"), str(d.get("imageId", ""))) < boundary]
+        return docs[: limit + 1]
 
     def create_with_assets(self, doc: dict[str, Any], claims: dict[str, dict[str, Any]]) -> bool:
         """NGUYÊN TỬ (dưới một khóa): tạo bản ghi ảnh + đăng ký các asset. False (không ghi gì) nếu ảnh hoặc BẤT KỲ asset đã có."""
@@ -197,6 +224,27 @@ class FirestoreImageStore:
         except Exception as exc:
             raise self._unavailable(exc) from None
 
+    def list_page_by_owner(self, owner_id: str, limit: int, after: tuple[Any, str] | None = None) -> list[dict[str, Any]]:
+        """Một trang ảnh của `owner_id`, phân trang NGAY TRONG truy vấn Firestore (không tải cả collection):
+
+            where ownerId == owner_id  ->  order_by createdAt DESC, __name__ DESC  ->  [start_after]  ->  limit(limit + 1)
+
+        `__name__` (ID tài liệu = imageId) là khóa phụ duy nhất nên thứ tự toàn phần. Truy vấn này dùng index composite
+        `ownerId ASC + createdAt DESC` đã có trong firestore.indexes.json (Firestore tự thêm `__name__` cùng hướng với
+        trường cuối của index). CHƯA kiểm chứng với Firestore thật. Mọi lỗi => 503, không bao giờ thành danh sách rỗng.
+        """
+        try:
+            query = self._where(self._db().collection(COLLECTION_NAME), "ownerId", owner_id)
+            query = query.order_by("createdAt", direction="DESCENDING").order_by("__name__", direction="DESCENDING")
+            if after is not None:
+                # Thư viện google-cloud-firestore đổi chuỗi ở khóa "__name__" thành tham chiếu tài liệu trong collection.
+                query = query.start_after({"createdAt": after[0], "__name__": after[1]})
+            return [d.to_dict() or {} for d in query.limit(limit + 1).stream()]
+        except StorageUnavailableException:
+            raise
+        except Exception as exc:
+            raise self._unavailable(exc) from None
+
     def _asset_ref(self, key: str):
         return self._db().collection(ASSET_COLLECTION_NAME).document(key)
 
@@ -298,6 +346,10 @@ class ImageRepository:
 
     def list_by_owner(self, owner_id: str) -> list[dict[str, Any]]:
         return self.store.list_by_owner(owner_id)
+
+    def list_page_by_owner(self, owner_id: str, limit: int, after: tuple[Any, str] | None = None) -> list[dict[str, Any]]:
+        """Trang ảnh của một chủ sở hữu (tối đa `limit + 1` bản ghi, mới nhất trước). Xem `FirestoreImageStore.list_page_by_owner`."""
+        return self.store.list_page_by_owner(owner_id, limit, after)
 
     # ----- API cho confirm -----
     def server_time(self) -> Any:

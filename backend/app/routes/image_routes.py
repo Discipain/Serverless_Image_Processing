@@ -1,9 +1,11 @@
+import re
+
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from pydantic import BaseModel
 from app.auth import get_current_uid
-from app.services.image_service import image_service
+from app.services.image_service import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, image_service
 from app.services.google_drive import google_drive_service
 from app.exceptions import InvalidFileException
 
@@ -96,14 +98,37 @@ def preview_drive_image(
     )
 
 
+_LIMIT_RE = re.compile(r"[0-9]{1,18}")  # chỉ số thập phân ASCII; "-1", "1.5", "1e3", " 5", "abc", "" đều không khớp
+
+
+def _parse_limit(raw: str | None) -> int:
+    """`limit` mặc định 20; số > 20 bị ép xuống 20; không phải số nguyên dương => 400 (FastAPI mặc định trả 422 nên tự đọc chuỗi)."""
+    if raw is None:
+        return DEFAULT_PAGE_SIZE
+    if not _LIMIT_RE.fullmatch(raw) or int(raw) < 1:
+        raise InvalidFileException("Invalid limit")
+    return min(int(raw), MAX_PAGE_SIZE)
+
+
 @router.get("")
 def list_images(
     folderId: str | None = Query(default=None),
+    limit: str | None = Query(default=None),
+    cursor: str | None = Query(default=None),
     uid: str = Depends(get_current_uid),
 ):
-    """UC04: Danh sách ảnh CỦA user đang đăng nhập (uid từ Firebase ID token). Tự đồng bộ Google Drive của chính user;
-    KHÔNG quét Cloudinary (tài nguyên Cloudinary chỉ được đăng ký qua POST /images/cloudinary/confirm)."""
-    return image_service.listImages(uid=uid, auto_sync=True, root_folder_id=folderId)
+    """UC04 (CONTRACT mục 5): một trang ảnh CỦA user đang đăng nhập (uid từ Firebase ID token), mới nhất trước.
+
+    `GET /images?limit=20&cursor=<nextCursor>` -> `{"items": [...], "nextCursor": "..."|null, "hasMore": bool}`.
+    Xác thực chạy trước (thiếu/sai token => 401). `cursor` là chuỗi mờ, chỉ được truyền lại nguyên văn từ `nextCursor`.
+    Trang đầu tự đồng bộ Google Drive của chính user; KHÔNG quét Cloudinary (tài nguyên Cloudinary chỉ được đăng ký qua
+    POST /images/cloudinary/confirm)."""
+    return image_service.listImagesPage(
+        uid=uid,
+        limit=_parse_limit(limit),
+        cursor=cursor or None,
+        root_folder_id=folderId,
+    )
 
 
 @router.get("/{image_id}")
