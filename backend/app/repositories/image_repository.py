@@ -8,7 +8,9 @@
 """
 import copy
 import logging
+import math
 import threading
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -16,6 +18,54 @@ from app.config import settings
 from app.exceptions import StorageUnavailableException
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class FirestoreTimeouts:
+    """Ngân sách thời gian CHO MỖI lời gọi RPC Firestore (không phải cho cả một HTTP request).
+
+    Vì sao cần: mặc định của google-cloud-firestore khi kho không phản hồi là QUÁ DÀI — Commit/create: retry tới 60 s; get (BatchGetDocuments)
+    và query (RunQuery): retry tới 300 s. Frontend chỉ chờ 30 s nên người dùng thấy "timeout" trong khi Backend vẫn treo một luồng.
+
+    - ĐỌC (get, query, đọc asset): retry CÓ GIỚI HẠN với đúng các lỗi tạm thời mà SDK đã coi là retry được (DeadlineExceeded, InternalServerError,
+      ServiceUnavailable), tổng thời gian retry VÀ deadline mỗi lần gọi đều bị chặn ở `read_s`. Đọc không có tác dụng phụ nên retry an toàn.
+    - GHI (create, set, update, batch.commit): KHÔNG retry tự động (`retry=None`), chỉ chặn deadline mỗi lần gọi ở `write_s`. Lý do: commit có thể đã
+      được áp dụng dù client không nhận phản hồi; việc xử lý "đã tồn tại / DONE" nằm ở tầng service (ImageService) và client có thể gọi lại an toàn.
+
+    Một HTTP request có thể gồm nhiều RPC nối tiếp, nhưng khi kho ngừng thì RPC ĐẦU TIÊN thất bại làm cả request dừng ngay (lỗi nổi lên thành 503),
+    nên thời gian tối đa khi kho ngừng xấp xỉ `max(read_s, write_s)`, không phải tổng của các RPC.
+    """
+
+    read_s: float = 10.0
+    write_s: float = 10.0
+
+    def __post_init__(self) -> None:
+        for name in ("read_s", "write_s"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 < value <= 60:
+                raise ValueError(f"FirestoreTimeouts.{name} phải là số trong (0, 60] giây.")
+
+    def read_options(self) -> dict[str, Any]:
+        """Tham số `retry`/`timeout` cho lời gọi ĐỌC (đã xác nhận SDK hỗ trợ: DocumentReference.get, Query.stream)."""
+        from google.api_core import exceptions as gexc
+        from google.api_core import retry as gretry
+
+        retry = gretry.Retry(
+            predicate=gretry.if_exception_type(gexc.DeadlineExceeded, gexc.InternalServerError, gexc.ServiceUnavailable),
+            initial=0.1,
+            maximum=1.0,
+            multiplier=2.0,
+            timeout=float(self.read_s),
+        )
+        return {"retry": retry, "timeout": float(self.read_s)}
+
+    def write_options(self) -> dict[str, Any]:
+        """Tham số cho lời gọi GHI: không retry, chỉ có deadline."""
+        return {"retry": None, "timeout": float(self.write_s)}
+
+
+# Cấu hình production (ImageRepository.store). Chọn 10 s để một request lỗi kho kết thúc ~10 s, còn dư nhiều so với timeout 30 s của Frontend.
+DEFAULT_FIRESTORE_TIMEOUTS = FirestoreTimeouts()
 
 COLLECTION_NAME = "images"
 # Sổ đăng ký asset Cloudinary: tài liệu `cloudinaryAssets/{sha256(public_id)}` = {publicId, imageId, ownerId, createdAt}.
@@ -143,10 +193,20 @@ def _default_firestore_client():
 class FirestoreImageStore:
     """Kho Firestore. `client_factory` và `server_timestamp` được tiêm vào để test bằng stub (không cần credential)."""
 
-    def __init__(self, client_factory: Callable[[], Any] = _default_firestore_client, server_timestamp: Any = None) -> None:
+    def __init__(
+        self,
+        client_factory: Callable[[], Any] = _default_firestore_client,
+        server_timestamp: Any = None,
+        timeouts: FirestoreTimeouts | None = None,
+    ) -> None:
         self._client_factory = client_factory
         self._client: Any = None
         self._server_timestamp = server_timestamp
+        # `timeouts=None` (mặc định, dùng cho stub) = KHÔNG truyền retry/timeout, giữ nguyên chữ ký lời gọi cũ để FakeFirestore hoạt động.
+        # Production (ImageRepository.store) truyền DEFAULT_FIRESTORE_TIMEOUTS.
+        self._timeouts = timeouts
+        self._read_opts: dict[str, Any] = timeouts.read_options() if timeouts is not None else {}
+        self._write_opts: dict[str, Any] = timeouts.write_options() if timeouts is not None else {}
 
     # ----- nội bộ -----
     def _db(self):
@@ -186,7 +246,7 @@ class FirestoreImageStore:
     def create(self, doc: dict[str, Any]) -> bool:
         ref = self._ref(doc["imageId"])
         try:
-            ref.create(doc)
+            ref.create(doc, **self._write_opts)
             return True
         except Exception as exc:
             if _is_already_exists(exc):
@@ -196,7 +256,7 @@ class FirestoreImageStore:
     def get(self, image_id: str) -> dict[str, Any] | None:
         ref = self._ref(image_id)
         try:
-            snap = ref.get()
+            snap = ref.get(**self._read_opts)
             return (snap.to_dict() or {}) if snap.exists else None
         except Exception as exc:
             raise self._unavailable(exc) from None
@@ -204,21 +264,21 @@ class FirestoreImageStore:
     def save(self, doc: dict[str, Any]) -> None:
         ref = self._ref(doc["imageId"])
         try:
-            ref.set(doc)
+            ref.set(doc, **self._write_opts)
         except Exception as exc:
             raise self._unavailable(exc) from None
 
     def update(self, image_id: str, fields: dict[str, Any]) -> None:
         ref = self._ref(image_id)
         try:
-            ref.update(fields)
+            ref.update(fields, **self._write_opts)
         except Exception as exc:
             raise self._unavailable(exc) from None
 
     def list_by_owner(self, owner_id: str) -> list[dict[str, Any]]:
         try:
             query = self._where(self._db().collection(COLLECTION_NAME), "ownerId", owner_id)
-            return [d.to_dict() or {} for d in query.stream()]
+            return [d.to_dict() or {} for d in query.stream(**self._read_opts)]
         except StorageUnavailableException:
             raise
         except Exception as exc:
@@ -239,7 +299,7 @@ class FirestoreImageStore:
             if after is not None:
                 # Thư viện google-cloud-firestore đổi chuỗi ở khóa "__name__" thành tham chiếu tài liệu trong collection.
                 query = query.start_after({"createdAt": after[0], "__name__": after[1]})
-            return [d.to_dict() or {} for d in query.limit(limit + 1).stream()]
+            return [d.to_dict() or {} for d in query.limit(limit + 1).stream(**self._read_opts)]
         except StorageUnavailableException:
             raise
         except Exception as exc:
@@ -254,7 +314,7 @@ class FirestoreImageStore:
         batch = self._db().batch()
         build(batch)
         try:
-            batch.commit()
+            batch.commit(**self._write_opts)
             return True
         except Exception as exc:
             if _is_already_exists(exc) or _is_not_found(exc):
@@ -290,7 +350,7 @@ class FirestoreImageStore:
         for key in keys:
             ref = self._asset_ref(key)
             try:
-                snap = ref.get()
+                snap = ref.get(**self._read_opts)
                 if snap.exists:
                     result[key] = snap.to_dict() or {}
             except Exception as exc:
@@ -300,7 +360,7 @@ class FirestoreImageStore:
     def find_by_drive_file_id(self, drive_file_id: str) -> list[dict[str, Any]]:
         try:
             query = self._where(self._db().collection(COLLECTION_NAME), "driveFileId", drive_file_id).limit(10)
-            return [snap.to_dict() or {} for snap in query.stream()]
+            return [snap.to_dict() or {} for snap in query.stream(**self._read_opts)]
         except StorageUnavailableException:
             raise
         except Exception as exc:
@@ -325,7 +385,7 @@ class ImageRepository:
         if self._store is None:
             mode = (settings.IMAGE_STORE or "").strip().lower()
             if mode == "firestore":
-                self._store = FirestoreImageStore()
+                self._store = FirestoreImageStore(timeouts=DEFAULT_FIRESTORE_TIMEOUTS)
             elif mode == "memory":
                 if not self._memory_warned:
                     logger.warning("IMAGE_STORE=memory: metadata chỉ nằm trong RAM, KHÔNG dùng cho production.")
