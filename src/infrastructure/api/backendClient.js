@@ -11,6 +11,7 @@
 // CHƯA KIỂM CHỨNG VỚI BACKEND THẬT: Backend chưa có API confirm đúng CONTRACT (xem báo cáo H3A).
 
 import { ERROR_CODE } from '../../application/errors';
+import { PAGE_SIZE } from '../../domain/constants/imageRules';
 import { CONFIRM_PAYLOAD_FIELDS, CONFIRM_REQUIRED_FIELDS } from '../../domain/models/confirmPayload';
 import {
   BACKEND_ERROR_KIND as KIND,
@@ -19,8 +20,10 @@ import {
   errorFromHttp,
   extractDetail,
 } from './backendErrors';
+import { buildImagePath, buildListPath, mapGalleryDetail, mapGalleryPage, parseJsonBody } from './galleryMapper';
 
 export const DEFAULT_TIMEOUT_MS = 30_000;
+const GALLERY_ERROR_SUBJECT = 'yêu cầu tải ảnh'; // thông báo 400 (limit/cursor/imageId sai)
 export const CONFIRM_PATH = '/images/cloudinary/confirm';
 
 const isHttpsUrl = (v) => typeof v === 'string' && v.startsWith('https://');
@@ -180,6 +183,22 @@ export function createBackendClient({ baseUrl, getIdToken, fetchImpl, timeoutMs 
       if (status >= 200 && status < 300) return parseConfirmResult(text, payload.imageId);
       throw errorFromHttp(status, extractDetail(text));
     },
+
+    // GET /images?limit=&cursor= (CONTRACT mục 5). Chỉ gửi limit/cursor; KHÔNG gửi ownerId/uid (Backend lấy uid từ token).
+    async listImages({ limit, cursor } = {}, { signal } = {}) {
+      const path = buildListPath({ limit, cursor }); // sai tham số => lỗi BAD_REQUEST TRƯỚC khi gọi mạng
+      const { status, text } = await request({ method: 'GET', path, signal });
+      if (status >= 200 && status < 300) return mapGalleryPage(parseJsonBody(text), { maxItems: limit ?? PAGE_SIZE });
+      throw errorFromHttp(status, extractDetail(text), { subject: GALLERY_ERROR_SUBJECT });
+    },
+
+    // GET /images/{imageId} (CONTRACT mục 4).
+    async getImage(imageId, { signal } = {}) {
+      const path = buildImagePath(imageId);
+      const { status, text } = await request({ method: 'GET', path, signal });
+      if (status >= 200 && status < 300) return mapGalleryDetail(parseJsonBody(text), imageId);
+      throw errorFromHttp(status, extractDetail(text), { subject: GALLERY_ERROR_SUBJECT });
+    },
   };
 }
 
@@ -191,6 +210,12 @@ export function createBackendClient({ baseUrl, getIdToken, fetchImpl, timeoutMs 
 export function createUnavailableBackendApi({ message, missing = [] }) {
   return {
     async confirmCloudinaryUpload() {
+      throw backendError(ERROR_CODE.CONFIG, KIND.CONFIG, message, { missing, unavailable: true });
+    },
+    async listImages() {
+      throw backendError(ERROR_CODE.CONFIG, KIND.CONFIG, message, { missing, unavailable: true });
+    },
+    async getImage() {
       throw backendError(ERROR_CODE.CONFIG, KIND.CONFIG, message, { missing, unavailable: true });
     },
   };

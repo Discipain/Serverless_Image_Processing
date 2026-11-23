@@ -21,6 +21,8 @@
 
 import { ERROR_CODE } from '../../application/errors';
 import { BACKEND_ERROR_KIND as KIND, backendError, cancelledError, errorFromHttp } from '../api/backendErrors';
+import { PAGE_SIZE } from '../../domain/constants/imageRules';
+import { mapGalleryDetail, mapGalleryPage, normalizeListParams, buildImagePath } from '../api/galleryMapper';
 
 export const MOCK_BACKEND_LABEL = 'MOCK';
 
@@ -111,6 +113,8 @@ function validatePayload(payload, { cloudName }) {
  * @param {Set<string>|null} [options.knownImageIds]  nếu có: imageId ngoài tập này -> 404
  * @param {string|null} [options.cloudName]  nếu có: 3 URL phải thuộc cloud này (mô phỏng luật "đúng cloud của nhóm")
  * @param {number|null} [options.savedPercent]  giá trị savedPercent MÔ PHỎNG khi request KHÔNG có processedSize (mặc định null: không bịa số)
+ * @param {Array<Object>} [options.galleryItems]  (INT-3A) dữ liệu Gallery GIẢ, đúng DẠNG JSON của Backend (cùng bộ ánh xạ với adapter thật).
+ *   Mô phỏng Backend lọc theo chủ sở hữu: chỉ trả phần tử có `ownerId === options.ownerId`. Mặc định rỗng. Kết quả luôn `isMock: true`.
  * @returns {import('../../application/ports.js').BackendApi & {debug: object}}
  */
 export function createMockBackendApi({
@@ -120,10 +124,20 @@ export function createMockBackendApi({
   knownImageIds = null,
   cloudName = null,
   savedPercent = null,
+  galleryItems = [],
 } = {}) {
   const store = new Map(); // imageId -> kết quả DONE đầu tiên (không ghi đè)
   const attempts = new Map(); // imageId -> số lần gọi confirm
   const S = MOCK_BACKEND_SCENARIOS;
+
+  // Lỗi theo kịch bản cho Gallery (cùng bộ lỗi với confirm). SUCCESS và INVALID_RESPONSE không ném ở đây.
+  async function throwScenarioError(scenario) {
+    if (scenario === S.NETWORK) throw backendError(ERROR_CODE.NETWORK, KIND.NETWORK, 'MOCK: mất kết nối tới Backend giả lập.', { retryable: true });
+    if (scenario === S.TIMEOUT) throw backendError(ERROR_CODE.NETWORK, KIND.TIMEOUT, 'MOCK: Backend giả lập phản hồi quá thời gian chờ.', { retryable: true });
+    const byStatus = { [S.UNAUTHENTICATED]: [401, 'Missing token'], [S.FORBIDDEN]: [403, 'Forbidden'], [S.NOT_FOUND]: [404, 'Image not found'],
+      [S.RATE_LIMITED]: [429, 'Too many requests'], [S.SERVER_ERROR]: [500, 'Internal error'] };
+    if (byStatus[scenario]) throw errorFromHttp(byStatus[scenario][0], byStatus[scenario][1], { subject: 'yêu cầu tải ảnh' });
+  }
 
   return {
     async confirmCloudinaryUpload(payload, { signal } = {}) {
@@ -177,6 +191,39 @@ export function createMockBackendApi({
       });
       store.set(imageId, result);
       return result;
+    },
+
+    // GET /images (MOCK): phân trang bằng cursor mờ "mock-<offset>"; ảnh của chủ sở hữu khác không bao giờ xuất hiện.
+    async listImages({ limit, cursor } = {}, { signal } = {}) {
+      await wait(latencyMs, signal);
+      await throwScenarioError(getScenario());
+      const params = normalizeListParams({ limit, cursor });
+      const size = params.limit ?? PAGE_SIZE;
+      let offset = 0;
+      if (params.cursor !== undefined) {
+        const m = /^mock-(\d{1,9})$/.exec(params.cursor);
+        if (!m) throw errorFromHttp(400, 'Invalid cursor', { subject: 'yêu cầu tải ảnh' });
+        offset = Number(m[1]);
+      }
+      const mine = galleryItems.filter((item) => item?.ownerId === ownerId);
+      const items = mine.slice(offset, offset + size);
+      const hasMore = offset + size < mine.length;
+      const body =
+        getScenario() === S.INVALID_RESPONSE
+          ? { items: 'khong-phai-mang' }
+          : { items, nextCursor: hasMore ? `mock-${offset + size}` : null, hasMore };
+      return mapGalleryPage(body, { maxItems: size, isMock: true });
+    },
+
+    // GET /images/{imageId} (MOCK): ảnh của chủ sở hữu khác => 403 Forbidden (đúng CONTRACT), không tồn tại => 404.
+    async getImage(imageId, { signal } = {}) {
+      buildImagePath(imageId);
+      await wait(latencyMs, signal);
+      await throwScenarioError(getScenario());
+      const found = galleryItems.find((item) => item?.imageId === imageId);
+      if (!found) throw errorFromHttp(404, 'Image not found', { subject: 'yêu cầu tải ảnh' });
+      if (found.ownerId !== ownerId) throw errorFromHttp(403, 'Forbidden', { subject: 'yêu cầu tải ảnh' });
+      return mapGalleryDetail(getScenario() === S.INVALID_RESPONSE ? { imageId, status: 'DONE?' } : found, imageId, { isMock: true });
     },
 
     /** Chỉ để kiểm thử/chẩn đoán, không thuộc port. */

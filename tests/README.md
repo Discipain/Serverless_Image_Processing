@@ -6,7 +6,8 @@ Không có file nào ở đây được import từ `src/`. Vite chỉ build `in
 tests/
   README.md
   manual/   cloudinary-check.html, cloudinaryCheck.js     (kiểm thử thủ công H2)
-  smoke/    smoke.mjs (H1), h2-smoke.mjs, h3a-smoke.mjs, h4a-smoke.mjs
+  smoke/    smoke.mjs (H1), h2-smoke.mjs, h3a-smoke.mjs, h4a-smoke.mjs, int3a-gallery-smoke.mjs, int3b-gallery-ui-smoke.mjs,
+            int3c1-provider-smoke.mjs
 ```
 
 ## manual/ — trang kiểm thử thủ công H2 (Cloudinary)
@@ -29,6 +30,19 @@ test là chuỗi giả. Không gọi Cloudinary, Backend hay Firebase thật.
 | `h2-smoke.mjs` | H2: Cloudinary uploader, upload 3 biến thể | `PASSED: 85`, `FAILED: 0` |
 | `h3a-smoke.mjs` | H3A: Backend client, payload confirm, MOCK Backend | `PASSED: 244`, `FAILED: 0` |
 | `h4a-smoke.mjs` | H4A: luồng upload Hybrid bằng MOCK | `PASSED: 141`, `FAILED: 0` |
+| `int3a-gallery-smoke.mjs` | INT-3A: Gallery API client (`GET /images`, `GET /images/{id}`), ánh xạ schema, MOCK | `PASSED: 188`, `FAILED: 0` |
+| `int3b-gallery-ui-smoke.mjs` | INT-3B: chọn MOCK/REAL, controller phân trang, đổi user/response muộn, giao diện Gallery (SSR) | `PASSED: 189`, `FAILED: 0` |
+| `int3c1-provider-smoke.mjs` | INT-3C.1 (F1): thiếu `GalleryServicesContext.Provider` — MOCK có cảnh báo; REAL/giá trị lạ -> lỗi cấu hình, không MOCK | `PASSED: 125`, `FAILED: 0` |
+
+`int3a-gallery-smoke.mjs` dùng "Backend giả" mô phỏng ngữ nghĩa Backend thật (uid từ token, cursor mờ, JSON dạng Firestore) và
+**chặn mọi fetch/XHR toàn cục** (đếm = 0 là điều kiện đạt). Bản thân nó KHÔNG chứng minh tích hợp với Backend thật.
+
+`int3b-gallery-ui-smoke.mjs` không có DOM (không cài jsdom): giao diện kiểm bằng SSR (`renderToString`), còn phân trang/đổi user/response muộn
+kiểm trực tiếp trên `galleryListController` (store thuần mà hook gắn vào React bằng `useSyncExternalStore`). Hành vi trong trình duyệt thật
+(StrictMode, sự kiện `onError` của `<img>`, bấm nút) cần kiểm thủ công.
+
+`int3c1-provider-smoke.mjs` tạo `.env` TẠM (thư mục hệ thống, ngoài repo) cho từng giá trị `VITE_GALLERY_MODE` để Vite nạp biến thật rồi render
+`GalleryPage` có/không có Provider (SSR). Mạng toàn cục bị chặn và đếm.
 
 ### Chạy (PowerShell, từ thư mục gốc dự án)
 
@@ -40,6 +54,9 @@ node tests/smoke/smoke.mjs .
 node tests/smoke/h2-smoke.mjs .
 node tests/smoke/h3a-smoke.mjs .
 node tests/smoke/h4a-smoke.mjs .
+node tests/smoke/int3a-gallery-smoke.mjs .
+node tests/smoke/int3b-gallery-ui-smoke.mjs .
+node tests/smoke/int3c1-provider-smoke.mjs .
 ```
 
 Tham số cuối `.` là thư mục gốc dự án. Mã thoát 0 và dòng `FAILED: 0` là đạt; test lỗi sẽ in `✗ <tên kiểm tra>` và thoát mã 1.

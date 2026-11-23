@@ -154,6 +154,44 @@
  *   VALIDATION (400/413/422), UNAUTHENTICATED (401), FORBIDDEN (403), NOT_FOUND (404), QUOTA_EXCEEDED (429),
  *   UNKNOWN/SERVER_ERROR (5xx), NETWORK, NETWORK/TIMEOUT, CANCELLED, CONFIG, UNKNOWN/INVALID_RESPONSE.
  *   `details.retryable` cho biết thử lại xác nhận có hợp lý không. KHÔNG tự retry vô hạn.
+ * @property {(query?: {limit?: number, cursor?: string|null}, options?: {signal?: AbortSignal}) => Promise<GalleryPage>} listImages
+ *   GET /images?limit=&cursor= (CONTRACT mục 5). Chỉ gửi limit (1..20) và cursor (nguyên văn `nextCursor` trước đó);
+ *   KHÔNG gửi ownerId/uid: Backend lấy uid từ token. Lỗi dùng cùng bộ `code`/`details.kind` như confirm; 400 có
+ *   `details.detail` = "Invalid cursor" | "Invalid limit". Response sai cấu trúc => UNKNOWN/INVALID_RESPONSE (không hiển thị một phần).
+ * @property {(imageId: string, options?: {signal?: AbortSignal}) => Promise<GalleryImage>} getImage
+ *   GET /images/{imageId} (CONTRACT mục 4). 403 ảnh của người khác, 404 không có.
+ */
+
+/**
+ * Ảnh trong Gallery, đã ánh xạ từ response của Backend (infrastructure/api/galleryMapper.js). KHÔNG chứa field nội bộ của Backend.
+ * @typedef {Object} GalleryImage
+ * @property {string} imageId
+ * @property {'PENDING'|'PROCESSING'|'DONE'|'FAILED'} status
+ * @property {string|null} ownerId
+ * @property {'cloudinary'|'google_drive'|null} provider
+ * @property {string} name  fileName (Cloudinary) hoặc originalName (Drive); thiếu thì dùng imageId
+ * @property {string|null} previewUrl  URL https dùng được trong <img>; null với ảnh Drive (đường dẫn tương đối cần Bearer)
+ * @property {{thumbnail: string|null, medium: string|null, webp: string|null}} variants  chỉ URL https, còn lại null
+ * @property {number|null} originalSize  byte (Cloudinary: original.size; Drive: sizeBytes)
+ * @property {number|null} width
+ * @property {number|null} height
+ * @property {number|null} processedSize
+ * @property {number|null} processingMs
+ * @property {number|null} savedPercent
+ * @property {number|null} retryCount
+ * @property {string|null} errorReason
+ * @property {Date|null} createdAt  Date UTC; null nếu Backend không gửi/sai định dạng
+ * @property {Date|null} updatedAt
+ * @property {boolean} createdAtEstimated  true: Drive không cho thời gian dùng được nên Backend dùng giờ đồng bộ
+ * @property {boolean} isMock  true khi do adapter MOCK tạo ra
+ */
+
+/**
+ * @typedef {Object} GalleryPage
+ * @property {GalleryImage[]} items  mới nhất trước (thứ tự do Backend quyết định, Frontend không sắp xếp lại)
+ * @property {string|null} nextCursor  chuỗi MỜ, truyền lại nguyên văn; null = hết dữ liệu
+ * @property {boolean} hasMore  luôn khớp với nextCursor !== null (đã kiểm tra)
+ * @property {boolean} isMock
  */
 
 /**

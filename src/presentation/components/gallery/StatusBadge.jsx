@@ -2,6 +2,7 @@ import { IMAGE_STATUS } from '../../../domain/constants/imageStatus';
 
 const STATUS_META = {
   [IMAGE_STATUS.PENDING]: { label: 'Đang chờ', modifier: 'pending' },
+  [IMAGE_STATUS.PROCESSING]: { label: 'Đang xử lý', modifier: 'pending' },
   [IMAGE_STATUS.DONE]: { label: 'Hoàn tất', modifier: 'done' },
   [IMAGE_STATUS.FAILED]: { label: 'Lỗi', modifier: 'failed' },
 };

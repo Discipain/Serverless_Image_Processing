@@ -729,3 +729,63 @@ code {
   background: var(--color-border);
   color: var(--color-muted);
 }
+
+/* ===== Gallery REAL (INT-3B) ===== */
+.real-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-done-bg);
+  color: var(--color-done-fg);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  vertical-align: middle;
+}
+
+.image-card__img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  background: var(--color-border);
+}
+
+.image-card__thumb--placeholder {
+  gap: 4px;
+  align-content: center;
+  justify-items: center;
+  padding: 8px;
+  background: var(--color-border);
+  color: var(--color-muted);
+  text-align: center;
+}
+
+.image-card__placeholder-icon {
+  font-size: 1.6rem;
+}
+
+.image-card__placeholder-text {
+  font-size: 0.75rem;
+}
+
+.gallery-more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.gallery-more__error {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-failed-fg);
+  text-align: center;
+}
+
+.gallery-more__end {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}

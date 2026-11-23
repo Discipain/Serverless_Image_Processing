@@ -60,13 +60,16 @@ export function extractDetail(text) {
   return null;
 }
 
-/** Chuyển mã HTTP lỗi + `detail` của Backend thành lỗi của Application. */
-export function errorFromHttp(status, detail) {
+/**
+ * Chuyển mã HTTP lỗi + `detail` của Backend thành lỗi của Application.
+ * `subject` chỉ đổi cụm "dữ liệu <subject>" trong thông báo 400 (mặc định "xác nhận" cho confirm; thư viện ảnh dùng cụm khác).
+ */
+export function errorFromHttp(status, detail, { subject = 'xác nhận' } = {}) {
   const suffix = detail ? ` (${detail})` : '';
   const extra = { httpStatus: status, detail: detail ?? null };
   const K = BACKEND_ERROR_KIND;
   const C = ERROR_CODE;
-  if (status === 400) return backendError(C.VALIDATION, K.BAD_REQUEST, `Backend từ chối dữ liệu xác nhận (HTTP 400)${suffix}.`, extra);
+  if (status === 400) return backendError(C.VALIDATION, K.BAD_REQUEST, `Backend từ chối dữ liệu ${subject} (HTTP 400)${suffix}.`, extra);
   if (status === 401) return backendError(C.UNAUTHENTICATED, K.UNAUTHENTICATED, `Backend không chấp nhận phiên đăng nhập (HTTP 401)${suffix}. Hãy đăng nhập lại.`, extra);
   if (status === 403) return backendError(C.FORBIDDEN, K.FORBIDDEN, `Bạn không có quyền với ảnh này (HTTP 403)${suffix}.`, extra);
   if (status === 404) return backendError(C.NOT_FOUND, K.NOT_FOUND, `Backend không tìm thấy ảnh (HTTP 404)${suffix}.`, extra);

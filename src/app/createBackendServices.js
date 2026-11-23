@@ -5,13 +5,15 @@
 //   - 'real'    : Backend thật qua fetch + Bearer token. Chỉ khi VITE_BACKEND_MODE=real và VITE_API_BASE_URL hợp lệ.
 //   - 'invalid' : đã chọn real nhưng cấu hình sai -> lỗi CONFIG rõ ràng, KHÔNG tự chuyển sang MOCK.
 //
-// CHƯA nối vào UI (H3B/H4). Không gọi mạng khi khởi tạo. Chế độ real cần `getIdToken` (use case của H1,
+// CHƯA nối vào UI (cả confirm lẫn Gallery; INT-3A chỉ chuẩn bị use case Gallery). Không gọi mạng khi khởi tạo. Chế độ real cần `getIdToken` (use case của H1,
 // lấy từ createAuthServices().useCases.getIdToken).
 
 import { readBackendConfig, BACKEND_MODE } from '../infrastructure/api/backendConfig';
 import { createBackendClient, createUnavailableBackendApi } from '../infrastructure/api/backendClient';
 import { createMockBackendApi } from '../infrastructure/mock/mockBackendApi';
 import { createConfirmCloudinaryUpload } from '../application/usecases/confirmCloudinaryUpload';
+import { createListGalleryImages } from '../application/usecases/listGalleryImages';
+import { createGetGalleryImage } from '../application/usecases/getGalleryImage';
 
 /**
  * @param {Object} [options]  (ứng dụng gọi không đối số chỉ cho chế độ mock; real cần getIdToken)
@@ -44,6 +46,9 @@ export function createBackendServices({
     configError: config.configError,
     useCases: Object.freeze({
       confirmCloudinaryUpload: createConfirmCloudinaryUpload({ backendApi }),
+      // INT-3A: đọc Gallery (GET /images, GET /images/{id}). CHƯA nối vào GalleryPage (vẫn dùng MOCK riêng của trang).
+      listGalleryImages: createListGalleryImages({ backendApi }),
+      getGalleryImage: createGetGalleryImage({ backendApi }),
     }),
   });
 }

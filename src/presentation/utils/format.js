@@ -29,6 +29,11 @@ export function formatSavedPercent(originalSize, processedSize) {
   return percent === null ? null : `${numberFormat.format(percent)}%`;
 }
 
+/** Hiển thị một con số phần trăm CÓ SẴN (vd savedPercent do Backend tính). Không phải số hữu hạn -> null; không tự suy diễn. */
+export function formatPercent(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? `${numberFormat.format(value)}%` : null;
+}
+
 // fileNameFromPath là quy tắc về đường dẫn Storage nên nằm ở domain; re-export để
 // các component hiện có (ImageCard) không phải đổi import.
 export { fileNameFromPath } from '../../domain/models/image';
