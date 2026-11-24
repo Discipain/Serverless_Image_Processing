@@ -9,7 +9,9 @@
 import copy
 import logging
 import math
+import random
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -67,15 +69,48 @@ class FirestoreTimeouts:
 # Cấu hình production (ImageRepository.store). Chọn 10 s để một request lỗi kho kết thúc ~10 s, còn dư nhiều so với timeout 30 s của Frontend.
 DEFAULT_FIRESTORE_TIMEOUTS = FirestoreTimeouts()
 
+@dataclass
+class ConfirmPlan:
+    """Kết quả của hàm `decide` trong `run_signed_confirm` (H4B-3).
+
+    `image_doc is None` => KHÔNG ghi gì, chỉ trả `result` (idempotent). Ngược lại: tạo ảnh + đăng ký các asset trong `asset_claims` + cập nhật
+    grant bằng `grant_updates`, cùng MỘT thao tác nguyên tử có điều kiện."""
+
+    result: dict[str, Any]
+    image_doc: dict[str, Any] | None = None
+    asset_claims: dict[str, dict[str, Any]] | None = None
+    grant_updates: dict[str, Any] | None = None
+
+
+MAX_CONFIRM_ATTEMPTS = 6  # số vòng đọc-quyết-định-ghi tối đa khi bị tranh chấp
+CONFIRM_BACKOFF_BASE = 0.03
+CONFIRM_BACKOFF_MAX = 0.4
+MIN_RPC_BUDGET_SECONDS = 0.5
+
 COLLECTION_NAME = "images"
 # Sổ đăng ký asset Cloudinary: tài liệu `cloudinaryAssets/{sha256(public_id)}` = {publicId, imageId, ownerId, createdAt}.
 # Tạo bằng `create` (thất bại nếu đã có) CÙNG LÚC với bản ghi ảnh trong một batch nguyên tử, nên một public_id chỉ thuộc một imageId.
 ASSET_COLLECTION_NAME = "cloudinaryAssets"
+# H4B-2: quyền upload có chữ ký. `uploadGrants/{imageId}` = grant (một imageId chỉ thuộc một chủ vì tạo bằng `create`);
+# `uploadGrantSlots/{...}` = "slot" giới hạn tốc độ: mỗi (người, giờ, số thứ tự n < giới hạn) là MỘT tài liệu tạo bằng `create`, nên tối đa
+# `giới hạn` grant mới mỗi giờ mỗi người, nguyên tử (cùng batch với grant), không cần transaction hay đếm-rồi-ghi.
+GRANT_COLLECTION_NAME = "uploadGrants"
+GRANT_SLOT_COLLECTION_NAME = "uploadGrantSlots"
 
 
 def _is_already_exists(exc: BaseException) -> bool:
     """google.api_core.exceptions.AlreadyExists (nhận diện theo tên để test không cần cài thư viện Google)."""
     return any(cls.__name__ == "AlreadyExists" for cls in type(exc).__mro__)
+
+
+def _is_aborted(exc: BaseException) -> bool:
+    """google.api_core.exceptions.Aborted: Firestore từ chối vì tranh chấp khóa; commit KHÔNG được áp dụng nên thử lại an toàn."""
+    return any(cls.__name__ == "Aborted" for cls in type(exc).__mro__)
+
+
+def _is_failed_precondition(exc: BaseException) -> bool:
+    """google.api_core.exceptions.FailedPrecondition: điều kiện `last_update_time` không còn đúng (tài liệu đã bị đổi kể từ lúc đọc)."""
+    return any(cls.__name__ == "FailedPrecondition" for cls in type(exc).__mro__)
 
 
 def _is_not_found(exc: BaseException) -> bool:
@@ -105,6 +140,8 @@ class MemoryImageStore:
     def __init__(self) -> None:
         self._docs: dict[str, dict[str, Any]] = {}
         self._assets: dict[str, dict[str, Any]] = {}  # khóa asset -> bản ghi đăng ký
+        self._grants: dict[str, dict[str, Any]] = {}  # imageId -> grant upload
+        self._grant_slots: dict[str, dict[str, Any]] = {}  # id slot giới hạn tốc độ -> bản ghi
         self._lock = threading.Lock()
 
     def server_time(self) -> datetime:
@@ -175,10 +212,48 @@ class MemoryImageStore:
         with self._lock:
             return [copy.deepcopy(d) for d in self._docs.values() if d.get("driveFileId") == drive_file_id]
 
+    def get_upload_grant(self, image_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            grant = self._grants.get(image_id)
+            return copy.deepcopy(grant) if grant is not None else None
+
+    def run_signed_confirm(self, image_id: str, asset_keys: list[str], decide: Callable[[dict[str, Any]], "ConfirmPlan"], *, deadline: float | None = None) -> dict[str, Any]:
+        """Đọc (image, grant, assets) -> `decide(state)` -> ghi, TẤT CẢ dưới MỘT khóa nên nguyên tử. `decide` KHÔNG được gọi lại repository (khóa không tái nhập)."""
+        with self._lock:
+            state = {
+                "image": copy.deepcopy(self._docs.get(image_id)),
+                "grant": copy.deepcopy(self._grants.get(image_id)),
+                "assets": {key: copy.deepcopy(self._assets[key]) for key in asset_keys if key in self._assets},
+            }
+            plan = decide(state)
+            if plan.image_doc is None:
+                return plan.result
+            claims = plan.asset_claims or {}
+            if image_id in self._docs or image_id not in self._grants or any(key in self._assets for key in claims):
+                raise StorageUnavailableException()  # decide đã kiểm tra; đây chỉ là chốt an toàn
+            self._docs[image_id] = copy.deepcopy(plan.image_doc)
+            for key, claim in claims.items():
+                self._assets[key] = copy.deepcopy(claim)
+            self._grants[image_id].update(copy.deepcopy(plan.grant_updates or {}))
+            return plan.result
+
+    def create_upload_grant(self, grant: dict[str, Any], slot_id: str, slot: dict[str, Any]) -> str:
+        """NGUYÊN TỬ (dưới một khóa): tạo grant + chiếm slot. 'created' | 'exists' (imageId đã có grant) | 'slot_taken'. Không ghi gì nếu không 'created'."""
+        with self._lock:
+            if grant["imageId"] in self._grants:
+                return "exists"
+            if slot_id in self._grant_slots:
+                return "slot_taken"
+            self._grants[grant["imageId"]] = copy.deepcopy(grant)
+            self._grant_slots[slot_id] = copy.deepcopy(slot)
+            return "created"
+
     def clear(self) -> None:
         with self._lock:
             self._docs.clear()
             self._assets.clear()
+            self._grants.clear()
+            self._grant_slots.clear()
 
 
 def _default_firestore_client():
@@ -357,6 +432,98 @@ class FirestoreImageStore:
                 raise self._unavailable(exc) from None
         return result
 
+    def _budgeted_options(self, deadline: float | None) -> tuple[dict[str, Any], dict[str, Any]]:
+        """(read_opts, write_opts) với deadline mỗi RPC bị chặn bởi thời gian còn lại của request. Hết ngân sách => 503 (không gọi thêm RPC)."""
+        if deadline is None or self._timeouts is None:
+            return self._read_opts, self._write_opts
+        remaining = deadline - time.monotonic()
+        if remaining < MIN_RPC_BUDGET_SECONDS:
+            logger.error("Hết ngân sách thời gian của request trước khi gọi Firestore.")
+            raise StorageUnavailableException()
+        limited = FirestoreTimeouts(read_s=min(self._timeouts.read_s, remaining), write_s=min(self._timeouts.write_s, remaining))
+        return limited.read_options(), limited.write_options()
+
+    def run_signed_confirm(self, image_id: str, asset_keys: list[str], decide: Callable[[dict[str, Any]], "ConfirmPlan"], *, deadline: float | None = None) -> dict[str, Any]:
+        """Đọc (image, grant, assets) -> `decide(state)` -> ghi bằng MỘT WriteBatch CÓ ĐIỀU KIỆN. Tương đương transaction (optimistic concurrency):
+
+          - ảnh: `create` (thất bại nếu đã tồn tại); mỗi asset: `create` (thất bại nếu đã đăng ký);
+          - grant: `update` kèm `last_update_time` = thời điểm vừa đọc (thất bại nếu grant bị đổi/xóa kể từ lúc đọc).
+        Mọi điều kiện đã đọc đều được Firestore kiểm tra lại LÚC COMMIT, nên hai request đồng thời không thể cùng chuyển grant ISSUED -> CONFIRMED.
+        Điều kiện đổi (AlreadyExists/FailedPrecondition/NotFound) hoặc tranh chấp khóa (Aborted) => đọc lại và `decide` lại (tối đa MAX_CONFIRM_ATTEMPTS vòng,
+        Aborted có backoff ngẫu nhiên). Cố ý KHÔNG dùng `firestore.transaction`: BeginTransaction/Commit của SDK không nhận timeout và tự retry (tới 60 s),
+        vượt ngân sách của Frontend. Lỗi kho khác (mất kết nối, DeadlineExceeded khi commit...) => 503 NGAY, không tự ghi lại: commit có thể đã được áp
+        dụng; request thử lại sẽ thấy grant CONFIRMED và trả kết quả idempotent. `decide` có thể raise HTTPException (dừng ngay)."""
+        grant_ref = self._db().collection(GRANT_COLLECTION_NAME).document(image_id)
+        image_ref = self._ref(image_id)
+        asset_refs = {key: self._asset_ref(key) for key in asset_keys}
+        for attempt in range(MAX_CONFIRM_ATTEMPTS):
+            read_opts, write_opts = self._budgeted_options(deadline)
+            try:
+                snaps = {snap.reference.path: snap for snap in self._db().get_all([image_ref, grant_ref, *asset_refs.values()], **read_opts)}
+            except StorageUnavailableException:
+                raise
+            except Exception as exc:
+                raise self._unavailable(exc) from None
+            image_snap, grant_snap = snaps.get(image_ref.path), snaps.get(grant_ref.path)
+            state = {
+                "image": (image_snap.to_dict() or {}) if image_snap is not None and image_snap.exists else None,
+                "grant": (grant_snap.to_dict() or {}) if grant_snap is not None and grant_snap.exists else None,
+                "assets": {key: (snaps[ref.path].to_dict() or {}) for key, ref in asset_refs.items() if ref.path in snaps and snaps[ref.path].exists},
+            }
+            plan = decide(state)
+            if plan.image_doc is None:
+                return plan.result
+            if grant_snap is None or not grant_snap.exists:
+                raise StorageUnavailableException()  # decide phải đã từ chối; chốt an toàn
+            batch = self._db().batch()
+            batch.create(image_ref, plan.image_doc)
+            for key, claim in (plan.asset_claims or {}).items():
+                batch.create(asset_refs[key], claim)
+            batch.update(grant_ref, plan.grant_updates or {}, option=self._db().write_option(last_update_time=grant_snap.update_time))
+            try:
+                batch.commit(**write_opts)
+                return plan.result
+            except Exception as exc:
+                if _is_aborted(exc):
+                    if attempt + 1 < MAX_CONFIRM_ATTEMPTS:
+                        time.sleep(random.uniform(0, min(CONFIRM_BACKOFF_MAX, CONFIRM_BACKOFF_BASE * 2 ** attempt)))
+                    continue
+                if _is_already_exists(exc) or _is_failed_precondition(exc) or _is_not_found(exc):
+                    continue  # điều kiện đã đổi: đọc lại, decide lại (sẽ dừng bằng lỗi đúng nếu không còn hợp lệ)
+                raise self._unavailable(exc) from None
+        logger.error("Confirm bị tranh chấp liên tục (hết %d vòng).", MAX_CONFIRM_ATTEMPTS)
+        raise StorageUnavailableException()
+
+    def get_upload_grant(self, image_id: str) -> dict[str, Any] | None:
+        try:
+            snap = self._db().collection(GRANT_COLLECTION_NAME).document(image_id).get(**self._read_opts)
+            return (snap.to_dict() or {}) if snap.exists else None
+        except StorageUnavailableException:
+            raise
+        except Exception as exc:
+            raise self._unavailable(exc) from None
+
+    def create_upload_grant(self, grant: dict[str, Any], slot_id: str, slot: dict[str, Any]) -> str:
+        """NGUYÊN TỬ: một WriteBatch `create` grant + `create` slot. 'created' | 'exists' | 'slot_taken' | 'contention'.
+
+        Nếu một trong hai đã tồn tại thì CẢ batch bị hủy (không ghi gì); đọc lại grant để biết nguyên nhân. 'contention' = Firestore trả `Aborted`
+        (tranh chấp khóa khi nhiều request cùng ghi một tài liệu; Emulator làm việc này rất hay): commit KHÔNG được áp dụng, người gọi đọc lại rồi thử lại
+        có giới hạn. Lỗi kho khác => 503, không bao giờ coi là 'created'."""
+        grant_ref = self._db().collection(GRANT_COLLECTION_NAME).document(grant["imageId"])
+        slot_ref = self._db().collection(GRANT_SLOT_COLLECTION_NAME).document(slot_id)
+        batch = self._db().batch()
+        batch.create(grant_ref, grant)
+        batch.create(slot_ref, slot)
+        try:
+            batch.commit(**self._write_opts)
+            return "created"
+        except Exception as exc:
+            if _is_aborted(exc):
+                return "contention"
+            if not _is_already_exists(exc):
+                raise self._unavailable(exc) from None
+        return "exists" if self.get_upload_grant(grant["imageId"]) is not None else "slot_taken"
+
     def find_by_drive_file_id(self, drive_file_id: str) -> list[dict[str, Any]]:
         try:
             query = self._where(self._db().collection(COLLECTION_NAME), "driveFileId", drive_file_id).limit(10)
@@ -437,6 +604,18 @@ class ImageRepository:
     def find_by_drive_file_id(self, drive_file_id: str) -> list[dict[str, Any]]:
         """Các bản ghi trỏ tới một file Google Drive (tối đa 10). Dùng để kiểm tra quyền sở hữu trước khi xem Preview."""
         return self.store.find_by_drive_file_id(drive_file_id)
+
+    # ----- H4B-2: grant upload có chữ ký -----
+    def get_upload_grant(self, image_id: str) -> dict[str, Any] | None:
+        return self.store.get_upload_grant(image_id)
+
+    def run_signed_confirm(self, image_id: str, asset_keys: list[str], decide: Callable[[dict[str, Any]], ConfirmPlan], *, deadline: float | None = None) -> dict[str, Any]:
+        """H4B-3: đọc -> decide -> ghi (ảnh + asset + grant ISSUED->CONFIRMED) NGUYÊN TỬ CÓ ĐIỀU KIỆN. Xem `FirestoreImageStore.run_signed_confirm`."""
+        return self.store.run_signed_confirm(image_id, asset_keys, decide, deadline=deadline)
+
+    def create_upload_grant(self, grant: dict[str, Any], slot_id: str, slot: dict[str, Any]) -> str:
+        """Tạo grant + chiếm slot NGUYÊN TỬ: 'created' | 'exists' | 'slot_taken' | 'contention' (chỉ Firestore; thử lại được)."""
+        return self.store.create_upload_grant(grant, slot_id, slot)
 
 
 image_repo = ImageRepository()

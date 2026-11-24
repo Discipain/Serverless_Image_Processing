@@ -15,9 +15,11 @@ from app.exceptions import (
     ForbiddenAccessException,
     NotFoundException,
 )
-from app.exceptions import StorageUnavailableException, UnauthorizedException
+from app.exceptions import SignedUploadUnavailableException, StorageUnavailableException, UnauthorizedException
 from app.repositories.image_repository import image_repo
 from app.services.google_drive import google_drive_service
+from app.services.signed_confirm import signed_confirm_service
+from app.services.upload_mode import MODE_LEGACY, MODE_SIGNED, confirm_mode
 from app.services.cloudinary_confirm import (
     ConfirmData,
     asset_claim_keys,
@@ -240,10 +242,17 @@ class ImageService:
 
         `uid` lấy từ Firebase ID token đã verify. Idempotent: imageId đã DONE thì trả bản ghi cũ, KHÔNG ghi đè.
 
+        Hai chế độ (`CLOUDINARY_CONFIRM_MODE`): "legacy" (mặc định, đoạn code dưới đây, không cần grant) và "signed" (H4B-3, `signed_confirm_service`).
+
         Asset được định danh bằng `public_id` suy ra từ URL (không phải chuỗi URL) và đăng ký trong sổ `cloudinaryAssets`
         CÙNG LÚC với bản ghi ảnh bằng MỘT thao tác nguyên tử: hai request đồng thời cùng một asset không thể cùng thành công.
         Đây là defense-in-depth: nó KHÔNG chứng minh ai đã upload asset (unsigned preset không cung cấp bằng chứng đó).
         """
+        mode = confirm_mode(settings)
+        if mode not in (MODE_LEGACY, MODE_SIGNED):
+            raise SignedUploadUnavailableException()  # cấu hình mâu thuẫn/không hợp lệ: fail closed, không tự chọn legacy
+        if mode == MODE_SIGNED:
+            return signed_confirm_service.confirm_payload(uid, body)  # H4B-3: BẮT BUỘC grant + xác minh Admin API; không có đường rơi về legacy bên dưới
         data = parse_confirm_payload(body)
 
         existing = image_repo.get_by_id(data.image_id)

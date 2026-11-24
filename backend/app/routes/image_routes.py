@@ -2,10 +2,11 @@ import re
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from app.auth import get_current_uid
 from app.services.image_service import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, image_service
+from app.services.upload_authorization import upload_authorization_service
 from app.services.google_drive import google_drive_service
 from app.exceptions import InvalidFileException
 
@@ -51,6 +52,23 @@ async def cloudinary_confirm(
     except ValueError:
         raise InvalidFileException("Invalid body") from None
     return await run_in_threadpool(image_service.confirmCloudinaryUpload, uid, body)
+
+@router.post("/cloudinary/authorize")
+async def cloudinary_authorize(
+    request: Request,
+    uid: str = Depends(get_current_uid),
+):
+    """H4B-2: cấp quyền upload có chữ ký Cloudinary cho ĐÚNG ba biến thể của một imageId. MẶC ĐỊNH TẮT (503 khi tắt/cấu hình thiếu).
+
+    Xác thực chạy TRƯỚC (thiếu/sai token => 401). `uid` chỉ lấy từ token. Body đọc thô để mọi lỗi dữ liệu là 400; field lạ bị từ chối.
+    Response chứa chữ ký nên KHÔNG được cache. Không gọi Cloudinary; không đổi POST /images/cloudinary/confirm."""
+    try:
+        body = await request.json()
+    except ValueError:
+        raise InvalidFileException("Invalid body") from None
+    result = await run_in_threadpool(upload_authorization_service.authorize, uid, body)
+    return JSONResponse(content=result, headers={"Cache-Control": "no-store"})
+
 
 @router.post("/upload-url")
 def get_upload_url(
