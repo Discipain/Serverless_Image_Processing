@@ -112,10 +112,12 @@ class Settings(BaseSettings):
     UPLOAD_GRANT_TTL_SECONDS: int = 900  # thời hạn grant (1..3600). KHÔNG thu hồi được chữ ký Cloudinary đã cấp (hiệu lực ~1 giờ phía Cloudinary)
     UPLOAD_GRANTS_PER_HOUR: int = 20  # tối đa số grant MỚI mỗi người mỗi giờ (1..100), thực thi nguyên tử bằng tài liệu "slot" trong Firestore
 
-    # --- Confirm theo grant + xác minh Cloudinary Admin API (H4B-3) ---
-    # "legacy" (MẶC ĐỊNH): confirm như cũ, KHÔNG cần grant. "signed": BẮT BUỘC grant hợp lệ + xác minh asset bằng Admin API; không bao giờ rơi về legacy.
-    # Giá trị lạ, hoặc CLOUDINARY_SIGNED_UPLOAD_ENABLED=true mà mode vẫn "legacy" => cấu hình mâu thuẫn => confirm VÀ authorize đều fail closed (503).
-    CLOUDINARY_CONFIRM_MODE: str = "legacy"
+    # --- Chế độ upload Cloudinary (H4B-3, siết ở H4B-7B.2/7B.2.1); diễn giải TẬP TRUNG ở app/services/upload_mode.py ---
+    # "disabled" (MẶC ĐỊNH): KHÔNG upload Cloudinary: authorize/confirm trả 503, POST /images/upload-url trả 410, không cấp unsigned preset, không ghi dữ liệu upload.
+    # "signed": confirm BẮT BUỘC grant hợp lệ + xác minh asset bằng Admin API; không bao giờ rơi về legacy.
+    # Mọi giá trị khác, KỂ CẢ "legacy", đặt bằng môi trường/.env đều là cấu hình sai => authorize, confirm và upload-url đều fail closed (503), không ghi Firestore,
+    # không gọi Cloudinary. Legacy chỉ chạy được trong harness cô lập có mã tiêm provider giả (xem app/services/upload_mode.py); KHÔNG có cờ môi trường nào bật nó.
+    CLOUDINARY_CONFIRM_MODE: str = "disabled"
     CLOUDINARY_ADMIN_TIMEOUT_SECONDS: float = 5.0  # chờ tối đa cho MỘT lần gọi Admin API (0.5..10); không tự retry
     UPLOAD_CONFIRM_BUDGET_SECONDS: float = 25.0  # ngân sách tổng cho một confirm ở chế độ signed (5..28), để lỗi thường gặp xảy ra trước timeout 30 s của Frontend
     UPLOAD_VERIFY_CLOCK_SKEW_SECONDS: int = 120  # sai số đồng hồ chấp nhận khi so created_at của asset với thời hạn grant (0..600)

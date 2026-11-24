@@ -49,6 +49,13 @@ class UploadVerificationUnavailableException(HTTPException):
         super().__init__(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail, headers=headers)
 
 
+class LegacyUploadRetiredException(HTTPException):
+    """Endpoint upload unsigned kiểu cũ (POST /images/upload-url) đã bị RETIRE theo chính sách (H4B-7B.2). Không lộ tên/giá trị cấu hình hay mode hiện tại."""
+
+    def __init__(self, detail: str = "Legacy upload endpoint is retired"):
+        super().__init__(status_code=status.HTTP_410_GONE, detail=detail)
+
+
 class SignedUploadUnavailableException(HTTPException):
     """Tính năng cấp chữ ký upload đang tắt hoặc cấu hình Backend thiếu/sai. Không lộ tên hay giá trị cấu hình cho client."""
 

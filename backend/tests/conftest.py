@@ -38,6 +38,24 @@ def fake_firebase_auth(monkeypatch):
     monkeypatch.setattr("app.auth._verify_id_token", fake_verify)
 
 
+@pytest.fixture
+def legacy_upload_compat(monkeypatch):
+    """H4B-7B.2.1: fixture CÔ LẬP cho các test tương thích lịch sử của đường LEGACY (upload unsigned + confirm không grant).
+
+    Mặc định của Backend là "disabled" và cấu hình môi trường KHÔNG BAO GIỜ bật được legacy. Chỉ fixture này (mã test, không phải cấu hình) tiêm một provider
+    Cloudinary GIẢ (test-cloud / test-unsigned-preset), nên upload-url chỉ trả cấu hình giả; auth giả (fake_firebase_auth) và kho RAM (fresh_store) đã tự động.
+    Mọi thay đổi được monkeypatch hoàn tác sau mỗi test, không rò sang test khác."""
+    from app.config import settings
+    from app.services import upload_mode
+
+    monkeypatch.setattr(upload_mode, "_legacy_provider", upload_mode.LegacyCompatProvider("test-cloud", "test-unsigned-preset"))
+    monkeypatch.setattr(settings, "CLOUDINARY_CONFIRM_MODE", "legacy")
+    monkeypatch.setattr(settings, "CLOUDINARY_SIGNED_UPLOAD_ENABLED", False)
+    monkeypatch.setattr(settings, "IMAGE_STORE", "memory")
+    monkeypatch.setattr(settings, "CLOUDINARY_API_KEY", "")
+    monkeypatch.setattr(settings, "CLOUDINARY_API_SECRET", "")
+
+
 @pytest.fixture(autouse=True)
 def fresh_store():
     """Mỗi test bắt đầu với kho RAM trống. Trả về kho để test kiểm tra nội dung đã lưu."""

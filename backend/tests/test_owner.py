@@ -1,9 +1,11 @@
 from fastapi.testclient import TestClient
 from backend.app.main import app
+import pytest
 
 client = TestClient(app)
 
 
+@pytest.mark.usefixtures("legacy_upload_compat")  # H4B-7B.2: đường LEGACY phải được bật tường minh (mặc định mới là "disabled")
 def test_user_a_cannot_read_user_b_image_returns_403():
     # 1. User B tạo ảnh
     create_res = client.post(

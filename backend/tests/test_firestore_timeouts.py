@@ -25,6 +25,8 @@ from app.repositories.image_repository import (
     image_repo,
 )
 
+pytestmark = pytest.mark.usefixtures("legacy_upload_compat")  # H4B-7B.2: các test này kiểm thử đường LEGACY; mặc định mới là "disabled" nên bật tương thích TƯỜNG MINH (xem conftest)
+
 URL = "/images/cloudinary/confirm"
 RPC_OPS = {"get", "create", "set", "update", "stream", "commit"}
 SECRET = "SECRET-INTERNAL-DETAIL-do-not-leak"

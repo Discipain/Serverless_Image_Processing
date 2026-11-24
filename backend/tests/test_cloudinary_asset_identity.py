@@ -15,6 +15,8 @@ from app.repositories.image_repository import FirestoreImageStore, MemoryImageSt
 from app.services.cloudinary_confirm import asset_key, parse_cloudinary_url
 from app.services.image_service import image_service
 
+pytestmark = pytest.mark.usefixtures("legacy_upload_compat")  # H4B-7B.2: các test này kiểm thử đường LEGACY; mặc định mới là "disabled" nên bật tương thích TƯỜNG MINH (xem conftest)
+
 CLOUD = "test-cloud"
 BASE = f"https://res.cloudinary.com/{CLOUD}/image/upload"
 URL = "/images/cloudinary/confirm"

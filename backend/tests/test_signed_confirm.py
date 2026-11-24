@@ -716,6 +716,12 @@ def test_invalid_confirm_mode_fails_closed_never_legacy(env, fresh_store, monkey
 
     monkeypatch.setattr(settings, "CLOUDINARY_SIGNED_UPLOAD_ENABLED", False)  # chỉ mode sai
     monkeypatch.setattr(settings, "CLOUDINARY_CONFIRM_MODE", mode)
+    if mode == "legacy ":  # H4B-7B.2.1: "legacy" chỉ hợp lệ khi harness cô lập tiêm provider GIẢ (cấu hình môi trường một mình không bao giờ đủ) + không có khóa Cloudinary
+        from app.services import upload_mode
+
+        monkeypatch.setattr(upload_mode, "_legacy_provider", upload_mode.LegacyCompatProvider("test-cloud", "test-unsigned-preset"))
+        monkeypatch.setattr(settings, "CLOUDINARY_API_KEY", "")
+        monkeypatch.setattr(settings, "CLOUDINARY_API_SECRET", "")
     res = env.client.post(URL, headers=bearer("user_A"), json=full_payload())
     if mode == "legacy ":  # khoảng trắng thừa được chuẩn hóa thành "legacy" (hợp lệ) => legacy
         assert res.status_code == 200
@@ -744,13 +750,17 @@ def test_confirm_signed_with_authorize_disabled_still_requires_grants(env, fresh
     assert env.client.post(AUTH_URL, headers=bearer("user_A"), json=authorize_body(IMAGE_ID_2)).status_code == 503
 
 
-def test_default_settings_are_legacy_and_flag_off():
+def test_default_settings_are_disabled_and_flags_off():
+    # H4B-7B.2: mặc định ĐỔI từ "legacy" sang "disabled" có chủ đích (không còn đường unsigned/legacy mặc định); cờ authorize vẫn TẮT.
+    # H4B-7B.2.1: KHÔNG tồn tại cờ cấu hình nào để bật legacy.
     from app.config import Settings
 
-    assert Settings.model_fields["CLOUDINARY_CONFIRM_MODE"].default == "legacy"
+    assert Settings.model_fields["CLOUDINARY_CONFIRM_MODE"].default == "disabled"
     assert Settings.model_fields["CLOUDINARY_SIGNED_UPLOAD_ENABLED"].default is False
+    assert not [name for name in Settings.model_fields if "LEGACY" in name or "COMPAT" in name]
 
 
+@pytest.mark.usefixtures("legacy_upload_compat")  # H4B-7B.2: đường LEGACY phải được bật tường minh (mặc định mới là "disabled")
 def test_legacy_mode_remains_compatible_with_existing_behaviour(client, fresh_store):
     from helpers import full_payload
 
@@ -1292,3 +1302,48 @@ def test_retry_after_429_and_503_are_exposed_for_both_default_origins(env, fresh
         assert h["access-control-allow-origin"] == origin
         assert "retry-after" in [x.strip().lower() for x in h["access-control-expose-headers"].split(",")]
     assert _cors_headers(r503)["retry-after"] == "90"
+
+
+# ================================================================== H4B-7B.2: mode signed khóa POST /images/upload-url; luồng an toàn không đổi; không rơi về legacy
+UPLOAD_URL = "/images/upload-url"
+UPLOAD_BODY = {"filename": "a.jpg", "contentType": "image/jpeg", "sizeBytes": 1000}
+
+
+def test_signed_mode_retires_upload_url_and_the_secure_flow_keeps_working(env, fresh_store):
+    from helpers import IMAGE_ID
+
+    locked = env.client.post(UPLOAD_URL, headers=bearer("user_A"), json=UPLOAD_BODY)
+    assert locked.status_code == 410 and locked.json() == {"detail": "Legacy upload endpoint is retired"}
+    assert "uploadPreset" not in locked.text and "publicId" not in locked.text and fresh_store._docs == {}
+
+    auth, body = env.ready()
+    done = env.confirm(body)
+    assert done.status_code == 200 and done.json()["status"] == "DONE" and done.json()["imageId"] == IMAGE_ID
+    assert env.confirm(body).status_code == 200  # confirm lặp lại (idempotent) vẫn thành công
+    assert env.confirm(body, uid="user_B").status_code == 403  # grant của người khác
+    assert env.client.get(f"/images/{IMAGE_ID}", headers=bearer("user_A")).status_code == 200  # Gallery đọc được theo owner
+    assert env.client.get(f"/images/{IMAGE_ID}", headers=bearer("user_B")).status_code == 403
+
+    assert env.client.post(UPLOAD_URL, headers=bearer("user_A"), json=UPLOAD_BODY).status_code == 410  # vẫn khóa sau khi có ảnh
+    assert set(fresh_store._docs) == {IMAGE_ID}  # upload-url không tạo bản ghi PENDING nào
+
+
+def test_signed_mode_never_falls_back_to_legacy_confirm(env, fresh_store):
+    from helpers import full_payload
+
+    res = env.client.post(URL, headers=bearer("user_A"), json=full_payload())  # không có grant
+    assert res.status_code == 403 and fresh_store._docs == {} and fresh_store._assets == {} and env.admin.calls == []
+
+
+def test_signed_mode_with_an_injected_legacy_provider_still_never_falls_back_to_legacy(env, fresh_store, monkeypatch):
+    # H4B-7B.2.1 (thay cho test về "cờ legacy thừa", cờ đó không còn tồn tại): provider legacy được tiêm không làm đổi mode signed.
+    from app.services import upload_mode
+    from helpers import full_payload
+
+    auth, body = env.ready()
+    monkeypatch.setattr(upload_mode, "_legacy_provider", upload_mode.LegacyCompatProvider("test-cloud", "test-unsigned-preset"))
+    assert env.confirm(body).status_code == 200  # signed vẫn chạy bình thường
+    assert env.client.post(URL, headers=bearer("user_A"), json=full_payload(IMAGE_ID_2)).status_code == 403  # không grant => từ chối, không rơi về legacy
+    upload = env.client.post(UPLOAD_URL, headers=bearer("user_A"), json=UPLOAD_BODY)
+    assert upload.status_code == 410 and "uploadPreset" not in upload.text and "test-unsigned-preset" not in upload.text
+    assert set(fresh_store._docs) == {IMAGE_ID}

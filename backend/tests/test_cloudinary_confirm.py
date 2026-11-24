@@ -7,6 +7,8 @@ from helpers import IMAGE_ID, IMAGE_ID_2, bearer, cloud_url, full_payload, minim
 
 from app.repositories.image_repository import MemoryImageStore, image_repo
 
+pytestmark = pytest.mark.usefixtures("legacy_upload_compat")  # H4B-7B.2: các test này kiểm thử đường LEGACY; mặc định mới là "disabled" nên bật tương thích TƯỜNG MINH (xem conftest)
+
 URL = "/images/cloudinary/confirm"
 REQUIRED = ["imageId", "thumbnail", "medium", "webp", "originalSize", "processingMs"]
 

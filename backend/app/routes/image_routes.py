@@ -5,6 +5,8 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from app.auth import get_current_uid
+from app.config import settings
+from app.services.upload_mode import require_legacy_upload_allowed
 from app.services.image_service import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, image_service
 from app.services.upload_authorization import upload_authorization_service
 from app.services.google_drive import google_drive_service
@@ -70,11 +72,19 @@ async def cloudinary_authorize(
     return JSONResponse(content=result, headers={"Cache-Control": "no-store"})
 
 
+def legacy_upload_gate(uid: str = Depends(get_current_uid)) -> str:
+    """H4B-7B.2: sau xác thực (thiếu/sai token => 401), TRƯỚC khi kiểm tra body và trước mọi ghi: chỉ mode "legacy" tường minh mới được qua.
+    disabled/signed => 410 (endpoint đã retire), cấu hình sai => 503. Cùng quy tắc được lặp lại trong image_service.requestUpload (phòng thủ nhiều lớp)."""
+    require_legacy_upload_allowed(settings)
+    return uid
+
+
 @router.post("/upload-url")
 def get_upload_url(
     payload: RequestUploadPayload,
-    uid: str = Depends(get_current_uid),
+    uid: str = Depends(legacy_upload_gate),
 ):
+    """ĐÃ RETIRE theo chính sách (H4B-7B.2): cấp unsigned upload preset + tạo bản ghi PENDING. Mặc định KHÔNG hoạt động; luồng duy nhất là authorize + signed confirm."""
     return image_service.requestUpload(
         uid=uid,
         filename=payload.filename,

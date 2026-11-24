@@ -19,7 +19,7 @@ from app.exceptions import SignedUploadUnavailableException, StorageUnavailableE
 from app.repositories.image_repository import image_repo
 from app.services.google_drive import google_drive_service
 from app.services.signed_confirm import signed_confirm_service
-from app.services.upload_mode import MODE_LEGACY, MODE_SIGNED, confirm_mode
+from app.services.upload_mode import MODE_LEGACY, MODE_SIGNED, confirm_mode, legacy_compat_provider, require_legacy_upload_allowed
 from app.services.cloudinary_confirm import (
     ConfirmData,
     asset_claim_keys,
@@ -194,6 +194,12 @@ class ImageService:
         drive_file_id: str | None = None,
         pipeline_folders: dict[str, str] | None = None,
     ) -> dict[str, Any]:
+        # H4B-7B.2: LEGACY (cấp unsigned preset + tạo PENDING). Chỉ chạy ở mode "legacy" tường minh; disabled/signed => 410, cấu hình sai => 503.
+        # Cổng này chạy TRƯỚC mọi kiểm tra dữ liệu và mọi ghi (cả route lẫn lời gọi trực tiếp đều qua đây): không PENDING, không preset trong response.
+        require_legacy_upload_allowed(settings)
+        compat = legacy_compat_provider()  # cấu hình unsigned GIẢ do harness cô lập tiêm; KHÔNG bao giờ dùng cloud name/preset trong settings (không cấp unsigned config thật)
+        if compat is None:
+            raise SignedUploadUnavailableException()
         checkFile(filename=filename, content_type=content_type, size_bytes=size_bytes)
 
         image_id = createImageId()
@@ -227,10 +233,10 @@ class ImageService:
 
         return {
             "imageId": image_id,
-            "uploadUrl": f"https://api.cloudinary.com/v1_1/{settings.CLOUDINARY_CLOUD_NAME}/image/upload",
+            "uploadUrl": f"https://api.cloudinary.com/v1_1/{compat.cloud_name}/image/upload",
             "cloudinaryConfig": {
-                "cloudName": settings.CLOUDINARY_CLOUD_NAME,
-                "uploadPreset": settings.CLOUDINARY_UPLOAD_PRESET,
+                "cloudName": compat.cloud_name,
+                "uploadPreset": compat.upload_preset,
                 "folder": f"uploads/{uid}",
                 "publicId": image_id,
             },
@@ -242,7 +248,8 @@ class ImageService:
 
         `uid` lấy từ Firebase ID token đã verify. Idempotent: imageId đã DONE thì trả bản ghi cũ, KHÔNG ghi đè.
 
-        Hai chế độ (`CLOUDINARY_CONFIRM_MODE`): "legacy" (mặc định, đoạn code dưới đây, không cần grant) và "signed" (H4B-3, `signed_confirm_service`).
+        Chế độ (`CLOUDINARY_CONFIRM_MODE`, diễn giải tập trung ở upload_mode.py): "disabled" (MẶC ĐỊNH) và cấu hình sai => 503 trước mọi đọc/ghi;
+        "signed" (H4B-3, `signed_confirm_service`); "legacy" (đoạn code dưới đây, không cần grant) CHỈ trong harness cô lập đã tiêm provider giả (không bật được bằng cấu hình môi trường).
 
         Asset được định danh bằng `public_id` suy ra từ URL (không phải chuỗi URL) và đăng ký trong sổ `cloudinaryAssets`
         CÙNG LÚC với bản ghi ảnh bằng MỘT thao tác nguyên tử: hai request đồng thời cùng một asset không thể cùng thành công.
@@ -250,7 +257,7 @@ class ImageService:
         """
         mode = confirm_mode(settings)
         if mode not in (MODE_LEGACY, MODE_SIGNED):
-            raise SignedUploadUnavailableException()  # cấu hình mâu thuẫn/không hợp lệ: fail closed, không tự chọn legacy
+            raise SignedUploadUnavailableException()  # disabled hoặc cấu hình mâu thuẫn/không hợp lệ: fail closed, không đọc/ghi gì, không tự chọn legacy
         if mode == MODE_SIGNED:
             return signed_confirm_service.confirm_payload(uid, body)  # H4B-3: BẮT BUỘC grant + xác minh Admin API; không có đường rơi về legacy bên dưới
         data = parse_confirm_payload(body)

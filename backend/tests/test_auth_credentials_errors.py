@@ -242,6 +242,7 @@ def test_malformed_credentials_file_through_the_real_initialiser_is_503(client, 
 
 
 # ------------------------------------------------------------------ ADC hợp lệ + token hợp lệ (mock) => đúng uid
+@pytest.mark.usefixtures("legacy_upload_compat")  # H4B-7B.2: đường LEGACY phải được bật tường minh (mặc định mới là "disabled")
 def test_valid_adc_and_valid_token_resolve_the_right_uid(client, monkeypatch, fresh_store):
     seen = []
     real_verifier(monkeypatch, verify=lambda token: seen.append(token) or {"uid": "uid-from-token", "sub": "uid-from-token"})
@@ -259,12 +260,14 @@ def test_valid_adc_and_valid_token_work_for_gallery_without_touching_cloudinary(
     assert res.json() == {"items": [], "nextCursor": None, "hasMore": False}  # CONTRACT mục 5 (INT-2)
 
 
+@pytest.mark.usefixtures("legacy_upload_compat")  # H4B-7B.2: đường LEGACY phải được bật tường minh (mặc định mới là "disabled")
 def test_x_user_id_still_cannot_replace_a_token_when_the_auth_service_is_up(client, monkeypatch):
     real_verifier(monkeypatch, verify=lambda token: {"uid": "uid-real"})
     res = client.post(URL, headers={"Authorization": "Bearer t", "X-User-Id": "attacker"}, json=minimal_payload())
     assert res.status_code == 200 and res.json()["ownerId"] == "uid-real"
 
 
+@pytest.mark.usefixtures("legacy_upload_compat")  # H4B-7B.2: đường LEGACY phải được bật tường minh (mặc định mới là "disabled")
 def test_default_and_fake_verification_paths_do_not_depend_on_adc(client):
     """Với verifier giả của conftest (token-<uid>), không có lời gọi ADC/mạng nào (fixture autouse sẽ làm test thất bại nếu có)."""
     res = client.post(URL, headers=bearer("user_A"), json=minimal_payload())

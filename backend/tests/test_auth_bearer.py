@@ -25,6 +25,7 @@ def test_malformed_or_invalid_authorization_returns_401(client, header):
     assert res.json() == {"detail": "Missing token"}
 
 
+@pytest.mark.usefixtures("legacy_upload_compat")  # H4B-7B.2: đường LEGACY phải được bật tường minh (mặc định mới là "disabled")
 def test_scheme_is_case_insensitive(client):
     res = client.post(URL, headers={"Authorization": "bearer token-user_A"}, json=minimal_payload())
     assert res.status_code == 200
@@ -37,6 +38,7 @@ def test_x_user_id_header_is_not_authentication(client):
     assert res.json() == {"detail": "Missing token"}
 
 
+@pytest.mark.usefixtures("legacy_upload_compat")  # H4B-7B.2: đường LEGACY phải được bật tường minh (mặc định mới là "disabled")
 def test_x_user_id_cannot_override_the_token_uid(client, fresh_store):
     res = client.post(URL, headers={**bearer("user_A"), "X-User-Id": "user_B"}, json=minimal_payload())
     assert res.status_code == 200
@@ -68,6 +70,7 @@ def test_verified_token_without_a_valid_uid_returns_401(client, monkeypatch, dec
     assert res.json() == {"detail": "Missing token"}
 
 
+@pytest.mark.usefixtures("legacy_upload_compat")  # H4B-7B.2: đường LEGACY phải được bật tường minh (mặc định mới là "disabled")
 def test_uid_falls_back_to_sub_of_a_verified_token(client, monkeypatch):
     monkeypatch.setattr("app.auth._verify_id_token", lambda token: {"sub": "uid-from-sub"})
     res = client.post(URL, headers={"Authorization": "Bearer anything"}, json=minimal_payload())

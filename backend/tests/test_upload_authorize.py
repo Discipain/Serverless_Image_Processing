@@ -14,6 +14,7 @@ from helpers import IMAGE_ID, IMAGE_ID_2, bearer, full_payload
 
 from app.config import Settings, settings
 from app.repositories.image_repository import FirestoreImageStore, ImageRepository, MemoryImageStore, image_repo
+from app.services import upload_mode
 from app.services.upload_authorization import SLOT_WINDOW_SECONDS, UploadAuthorizationService, upload_authorization_service
 
 URL = "/images/cloudinary/authorize"
@@ -110,6 +111,9 @@ def legacy_confirm(client, monkeypatch, uid="user_A", body=None):
     with monkeypatch.context() as m:
         m.setattr(settings, "CLOUDINARY_SIGNED_UPLOAD_ENABLED", False)
         m.setattr(settings, "CLOUDINARY_CONFIRM_MODE", "legacy")
+        m.setattr(upload_mode, "_legacy_provider", upload_mode.LegacyCompatProvider("test-cloud", "test-unsigned-preset"))  # H4B-7B.2.1: provider GIẢ do test tiêm (không có cờ môi trường)
+        m.setattr(settings, "CLOUDINARY_API_KEY", "")
+        m.setattr(settings, "CLOUDINARY_API_SECRET", "")
         return client.post(CONFIRM_URL, headers=bearer(uid), json=body if body is not None else full_payload())
 
 
@@ -632,6 +636,7 @@ def test_firestore_commit_failure_after_reads_never_returns_signature(client, fa
 
 
 # ------------------------------------------------------------------ confirm KHÔNG đổi (H4B-2 không đụng confirm)
+@pytest.mark.usefixtures("legacy_upload_compat")  # H4B-7B.2: đường LEGACY phải được bật tường minh (mặc định mới là "disabled")
 def test_legacy_confirm_still_works_without_any_grant(client, fresh_store):
     res = client.post(CONFIRM_URL, headers=bearer("user_A"), json=full_payload())  # mặc định: mode legacy, cờ authorize tắt
     assert res.status_code == 200 and res.json()["status"] == "DONE"
@@ -645,6 +650,7 @@ def test_legacy_confirm_does_not_read_or_modify_grants(client, fresh_store, sign
     assert fresh_store._grants[IMAGE_ID] == before and before["status"] == "ISSUED"
 
 
+@pytest.mark.usefixtures("legacy_upload_compat")  # H4B-7B.2: đường LEGACY phải được bật tường minh (mặc định mới là "disabled")
 def test_confirm_works_with_feature_flag_off_and_authorize_does_not_change_it(client, fresh_store):
     assert client.post(CONFIRM_URL, headers=bearer("user_A"), json=full_payload()).status_code == 200
 
@@ -660,6 +666,7 @@ def test_confirm_route_is_not_gated_by_the_new_flag():
         assert forbidden not in block
 
 
+@pytest.mark.usefixtures("legacy_upload_compat")  # H4B-7B.2: đường LEGACY phải được bật tường minh (mặc định mới là "disabled")
 def test_upload_url_endpoint_is_unchanged(client, fresh_store):
     res = client.post("/images/upload-url", headers=bearer("user_A"), json={"filename": "a.jpg", "contentType": "image/jpeg", "sizeBytes": 1000})
     assert res.status_code == 200

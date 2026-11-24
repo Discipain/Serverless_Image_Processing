@@ -12,6 +12,8 @@ from helpers import IMAGE_ID, IMAGE_ID_2, bearer, full_payload, minimal_payload
 from app.config import Settings, settings
 from app.repositories.image_repository import FirestoreImageStore, ImageRepository, MemoryImageStore, image_repo
 
+pytestmark = pytest.mark.usefixtures("legacy_upload_compat")  # H4B-7B.2: các test này kiểm thử đường LEGACY; mặc định mới là "disabled" nên bật tương thích TƯỜNG MINH (xem conftest)
+
 URL = "/images/cloudinary/confirm"
 
 
@@ -180,5 +182,7 @@ def test_repository_selects_store_from_settings_lazily(monkeypatch):
 def test_invalid_image_store_setting_returns_503(client, monkeypatch):
     monkeypatch.setattr(settings, "IMAGE_STORE", "bogus")
     image_repo.configure(None)  # buộc chọn lại kho từ cấu hình
-    res = post(client, minimal_payload())
+    # H4B-7B.2: mode legacy chỉ chạy với IMAGE_STORE=memory (cổng chặn trước, 503 "Signed upload unavailable"), nên không còn dùng legacy confirm làm
+    # phương tiện thử kho sai; dùng route đọc (qua repository) để kiểm đúng cùng mục tiêu: IMAGE_STORE sai => 503 "Storage unavailable", không tự rơi về RAM.
+    res = client.get(f"/images/{IMAGE_ID}", headers=bearer("user_A"))
     assert res.status_code == 503 and res.json() == {"detail": "Storage unavailable"}
