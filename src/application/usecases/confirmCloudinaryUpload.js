@@ -22,8 +22,14 @@ const KNOWN_CODES = new Set(Object.values(ERROR_CODE));
 /**
  * @param {Object} deps
  * @param {import('../ports.js').BackendApi} deps.backendApi
+ * @param {'total'|'webp'} [deps.processedSizeBasis='total']  nghĩa của `processedSize` trong request:
+ *   'total' (mặc định, luồng H3A/H4A): tổng dung lượng 3 Blob. 'webp' (luồng Signed H4B-4): dung lượng Blob `webp` (full),
+ *   vì Backend signed (30318ee) so `processedSize` với bytes THẬT của asset webp trên Cloudinary và trả 409 nếu khác.
  */
-export function createConfirmCloudinaryUpload({ backendApi }) {
+export function createConfirmCloudinaryUpload({ backendApi, processedSizeBasis = 'total' }) {
+  if (processedSizeBasis !== 'total' && processedSizeBasis !== 'webp') {
+    throw new TypeError('createConfirmCloudinaryUpload: processedSizeBasis chỉ nhận "total" hoặc "webp".');
+  }
   /**
    * @param {Object} args
    * @param {string} args.imageId
@@ -54,6 +60,14 @@ export function createConfirmCloudinaryUpload({ backendApi }) {
           webp: processed?.blobs?.webp?.size,
         },
       });
+      // Domain tính processedSize = TỔNG 3 Blob (H3A). Luồng signed ghi đè bằng bytes của Blob webp (xem tham số processedSizeBasis).
+      if (processedSizeBasis === 'webp') {
+        const webpSize = processed?.blobs?.webp?.size;
+        if (!Number.isInteger(webpSize) || webpSize <= 0) {
+          throw new ConfirmPayloadError(['processedSize không hợp lệ: cần dung lượng (byte) là số nguyên dương của Blob webp']);
+        }
+        payload.processedSize = webpSize;
+      }
     } catch (error) {
       if (error instanceof ConfirmPayloadError) {
         throw new AppError(ERROR_CODE.VALIDATION, error.message, {

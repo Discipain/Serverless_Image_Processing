@@ -353,7 +353,12 @@ for (const f of files) {
   const bad = importsOf(code).filter((i) => FORBIDDEN_IMPORT.test(i));
   check(`mã nguồn ${n}/không import uploader thật, backendClient, Firebase`, bad.length === 0, bad.join());
   check(`mã nguồn ${n}/không XMLHttpRequest, fetch, api.cloudinary.com`, !/XMLHttpRequest|\bfetch\s*\(|api\.cloudinary\.com/.test(code));
-  check(`mã nguồn ${n}/không đọc/ghi token, env Cloudinary, storage`, !/getIdToken|VITE_CLOUDINARY|VITE_FIREBASE|localStorage|sessionStorage|import\.meta\.env/.test(code));
+  // H4B-5: useUploadServices.js được phép đọc import.meta.env CHỈ để diễn giải VITE_UPLOAD_MODE trong nhánh thiếu Provider (cùng mẫu useGalleryServices).
+  // Mọi file khác vẫn cấm import.meta.env; file đó vẫn cấm token, biến Cloudinary/Firebase và storage.
+  const envForbidden = n === 'useUploadServices.js' ? /getIdToken|VITE_CLOUDINARY|VITE_FIREBASE|localStorage|sessionStorage/ : /getIdToken|VITE_CLOUDINARY|VITE_FIREBASE|localStorage|sessionStorage|import\.meta\.env/;
+  // Với useUploadServices.js, điều kiện thêm: chỉ ĐÚNG MỘT chỗ import.meta.env và là VITE_UPLOAD_MODE (qua UPLOAD_ENV.mode).
+  const onlyUploadModeEnv = n !== 'useUploadServices.js' || ((code.match(/import\.meta\.env/g) || []).length === 1 && /import\.meta\.env\?\.\[UPLOAD_ENV\.mode\]/.test(code));
+  check(`mã nguồn ${n}/không đọc/ghi token, env Cloudinary, storage`, !envForbidden.test(code) && onlyUploadModeEnv);
   check(`mã nguồn ${n}/không console.*`, !/console\./.test(code));
 }
 check('mã nguồn/imageId chỉ sinh qua generateId được tiêm (không randomUUID rải rác)', files.every((f) => !/randomUUID|Math\.random/.test(strip(read(f)))));

@@ -37,3 +37,9 @@ export function formatPercent(value) {
 // fileNameFromPath là quy tắc về đường dẫn Storage nên nằm ở domain; re-export để
 // các component hiện có (ImageCard) không phải đổi import.
 export { fileNameFromPath } from '../../domain/models/image';
+
+/** Số giây còn lại tới mốc `notBefore` (ms epoch) tại thời điểm `nowMs`; 0 nếu không có mốc hoặc đã qua. Thuần để kiểm thử. */
+export function remainingSeconds(notBefore, nowMs) {
+  if (!Number.isFinite(notBefore) || notBefore <= 0) return 0;
+  return Math.max(0, Math.ceil((notBefore - nowMs) / 1000));
+}

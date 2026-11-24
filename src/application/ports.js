@@ -112,6 +112,8 @@
  * @property {number|null} width
  * @property {number|null} height
  * @property {string|null} assetId
+ * @property {number} [version]    chỉ có ở uploader CÓ CHỮ KÝ (H4B-4): số phiên bản Cloudinary đã được kiểm tra
+ * @property {boolean} [existing]  chỉ có ở uploader CÓ CHỮ KÝ: true khi Cloudinary báo asset đã tồn tại (overwrite=false), KHÔNG phải upload mới
  */
 
 /**
@@ -122,6 +124,17 @@
  *   CONFIG (thiếu cấu hình), VALIDATION/INVALID_INPUT (Blob sai), NETWORK/NETWORK, NETWORK/TIMEOUT, CANCELLED,
  *   UPLOAD_FAILED/CLOUDINARY_REJECTED (HTTP lỗi; 420/429 -> QUOTA_EXCEEDED), UPLOAD_FAILED/INVALID_RESPONSE.
  *   KHÔNG tự retry; sau khi hủy thì không tự upload lại; không xóa gì trên Cloudinary.
+ */
+
+/**
+ * Uploader CÓ CHỮ KÝ (H4B-4, infrastructure/cloudinary/signedCloudinaryUploader.js). Chưa được nối vào ứng dụng (H4B-5).
+ * @typedef {Object} SignedCloudinaryUploader
+ * @property {(args: {blob: Blob, variant: 'thumbnail'|'medium'|'webp', uploadUrl: string, fields: Record<string, string>, expected: {bytes: number, width: number, height: number}, onProgress?: (percent: number) => void, signal?: AbortSignal}) => Promise<CloudinaryAsset>} upload
+ *   Gửi ĐÚNG tám trường Backend đã ký (public_id, timestamp, overwrite, allowed_formats, context, tags, api_key, signature) NGUYÊN VĂN + `file`.
+ *   KHÔNG gửi upload_preset, KHÔNG gửi Bearer/Authorization, KHÔNG tự đặt/đổi tham số đã ký. Response được đối chiếu với `expected`
+ *   (public_id, resource_type, type, format webp, bytes, width, height, version, asset_id, secure_url HTTPS của đúng cloud); lệch => lỗi.
+ *   `existing: true` khớp số đo được trả về kèm cờ existing (không phải upload mới); Backend vẫn xác minh ở bước confirm.
+ *   Lỗi: như CloudinaryUploader, thêm details.kind SIGNATURE_REJECTED (401/403/chữ ký cũ), UPLOAD_RESPONSE_MISMATCH, EXISTING_ASSET_MISMATCH.
  */
 
 /**
@@ -154,6 +167,11 @@
  *   VALIDATION (400/413/422), UNAUTHENTICATED (401), FORBIDDEN (403), NOT_FOUND (404), QUOTA_EXCEEDED (429),
  *   UNKNOWN/SERVER_ERROR (5xx), NETWORK, NETWORK/TIMEOUT, CANCELLED, CONFIG, UNKNOWN/INVALID_RESPONSE.
  *   `details.retryable` cho biết thử lại xác nhận có hợp lý không. KHÔNG tự retry vô hạn.
+ * @property {(payload: object, options?: {signal?: AbortSignal}) => Promise<object>} authorizeCloudinaryUpload
+ *   POST /images/cloudinary/authorize (H4B-2; Backend 30318ee). Request: { imageId (UUID v4 chữ thường), originalSize,
+ *   variants: {thumbnail|medium|webp: {bytes, width, height}} } + tùy chọn { fileName, width, height }; field lạ => 400. Trả JSON THÔ của 2xx
+ *   (imageId, expiresAt, uploadUrl, apiKey, uploads[variant].fields); việc kiểm tra do use case authorizeCloudinaryUpload làm. Lỗi giống confirm;
+ *   429/503 có thể mang `details.retryAfterSeconds` (từ header Retry-After dạng số giây). Backend mặc định TẮT tính năng (503 "Signed upload unavailable").
  * @property {(query?: {limit?: number, cursor?: string|null}, options?: {signal?: AbortSignal}) => Promise<GalleryPage>} listImages
  *   GET /images?limit=&cursor= (CONTRACT mục 5). Chỉ gửi limit (1..20) và cursor (nguyên văn `nextCursor` trước đó);
  *   KHÔNG gửi ownerId/uid: Backend lấy uid từ token. Lỗi dùng cùng bộ `code`/`details.kind` như confirm; 400 có

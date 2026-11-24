@@ -14,6 +14,11 @@ import { ERROR_CODE } from '../../application/errors';
 import { PAGE_SIZE } from '../../domain/constants/imageRules';
 import { CONFIRM_PAYLOAD_FIELDS, CONFIRM_REQUIRED_FIELDS } from '../../domain/models/confirmPayload';
 import {
+  AUTHORIZE_TOP_FIELDS,
+  AUTHORIZE_VARIANT_FIELDS,
+  VARIANT_KEYS as AUTHORIZE_VARIANT_KEYS,
+} from '../../domain/models/uploadAuthorization';
+import {
   BACKEND_ERROR_KIND as KIND,
   backendError,
   cancelledError,
@@ -25,6 +30,46 @@ import { buildImagePath, buildListPath, mapGalleryDetail, mapGalleryPage, parseJ
 export const DEFAULT_TIMEOUT_MS = 30_000;
 const GALLERY_ERROR_SUBJECT = 'yêu cầu tải ảnh'; // thông báo 400 (limit/cursor/imageId sai)
 export const CONFIRM_PATH = '/images/cloudinary/confirm';
+export const AUTHORIZE_PATH = '/images/cloudinary/authorize';
+const MAX_RETRY_AFTER_SECONDS = 24 * 3600;
+
+/** Retry-After dạng SỐ GIÂY (Backend H4B chỉ gửi dạng này). Không đọc được/ngoài khoảng => null (không tự đoán). */
+function readRetryAfter(response) {
+  const raw = response?.headers?.get?.('Retry-After');
+  if (typeof raw !== 'string' || !/^\d{1,6}$/.test(raw.trim())) return null;
+  const seconds = Number(raw.trim());
+  return seconds >= 1 && seconds <= MAX_RETRY_AFTER_SECONDS ? seconds : null;
+}
+
+/** Gắn Retry-After vào lỗi 429/503 (chỉ khi Backend gửi). */
+function withRetryAfter(error, retryAfterSeconds) {
+  if (retryAfterSeconds !== null && retryAfterSeconds !== undefined && error?.details) error.details.retryAfterSeconds = retryAfterSeconds;
+  return error;
+}
+
+/** Request authorize chỉ được có các field của Backend: chặn ownerId/UID/public_id/field lạ TRƯỚC khi gửi. */
+function checkAuthorizePayload(payload) {
+  const bad = (why) => backendError(ERROR_CODE.VALIDATION, KIND.BAD_REQUEST, `Payload cấp quyền upload không đúng hợp đồng (${why}).`);
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw bad('không phải đối tượng');
+  const extra = Object.keys(payload).filter((key) => !AUTHORIZE_TOP_FIELDS.includes(key));
+  if (extra.length > 0) throw bad(`field ngoài hợp đồng: ${extra.join(', ')}`);
+  for (const name of ['imageId', 'originalSize', 'variants']) {
+    if (payload[name] === undefined || payload[name] === null) throw bad(`thiếu ${name}`);
+  }
+  const variants = payload.variants;
+  if (typeof variants !== 'object' || Array.isArray(variants)) throw bad('variants không hợp lệ');
+  const keys = Object.keys(variants);
+  if (keys.length !== AUTHORIZE_VARIANT_KEYS.length || !AUTHORIZE_VARIANT_KEYS.every((key) => keys.includes(key))) {
+    throw bad('variants phải có đúng thumbnail, medium, webp');
+  }
+  for (const key of AUTHORIZE_VARIANT_KEYS) {
+    const item = variants[key];
+    const fields = item && typeof item === 'object' ? Object.keys(item) : [];
+    if (fields.length !== AUTHORIZE_VARIANT_FIELDS.length || !AUTHORIZE_VARIANT_FIELDS.every((name) => fields.includes(name))) {
+      throw bad(`biến thể ${key} phải có đúng bytes, width, height`);
+    }
+  }
+}
 
 const isHttpsUrl = (v) => typeof v === 'string' && v.startsWith('https://');
 
@@ -126,7 +171,7 @@ export function createBackendClient({ baseUrl, getIdToken, fetchImpl, timeoutMs 
         mode: 'cors',
       });
       const text = await response.text();
-      return { status: response.status, text };
+      return { status: response.status, text, retryAfterSeconds: readRetryAfter(response) };
     } catch (error) {
       if (signal?.aborted) throw cancelledError();
       if (timedOut) {
@@ -179,9 +224,29 @@ export function createBackendClient({ baseUrl, getIdToken, fetchImpl, timeoutMs 
         if (extra.length > 0) parts.push(`field ngoài CONTRACT: ${extra.join(', ')}`);
         throw backendError(ERROR_CODE.VALIDATION, KIND.BAD_REQUEST, `Payload xác nhận không đúng CONTRACT (${parts.join('; ')}).`);
       }
-      const { status, text } = await request({ method: 'POST', path: CONFIRM_PATH, body: payload, signal });
+      const { status, text, retryAfterSeconds } = await request({ method: 'POST', path: CONFIRM_PATH, body: payload, signal });
       if (status >= 200 && status < 300) return parseConfirmResult(text, payload.imageId);
-      throw errorFromHttp(status, extractDetail(text));
+      throw withRetryAfter(errorFromHttp(status, extractDetail(text)), retryAfterSeconds);
+    },
+
+    // POST /images/cloudinary/authorize (H4B-2). Trả JSON THÔ của response 2xx; việc KIỂM TRA nội dung (uploadUrl, public_id,
+    // chữ ký...) do use case authorizeCloudinaryUpload làm. Token Firebase CHỈ gửi tới Backend, không bao giờ tới Cloudinary.
+    async authorizeCloudinaryUpload(payload, { signal } = {}) {
+      checkAuthorizePayload(payload);
+      const { status, text, retryAfterSeconds } = await request({ method: 'POST', path: AUTHORIZE_PATH, body: payload, signal });
+      if (status >= 200 && status < 300) {
+        let body;
+        try {
+          body = JSON.parse(text);
+        } catch {
+          throw backendError(ERROR_CODE.UNKNOWN, KIND.INVALID_RESPONSE, 'Backend trả về dữ liệu cấp quyền không phải JSON.', { retryable: false });
+        }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
+          throw backendError(ERROR_CODE.UNKNOWN, KIND.INVALID_RESPONSE, 'Backend trả về dữ liệu cấp quyền không phải đối tượng JSON.', { retryable: false });
+        }
+        return body;
+      }
+      throw withRetryAfter(errorFromHttp(status, extractDetail(text), { subject: 'cấp quyền upload' }), retryAfterSeconds);
     },
 
     // GET /images?limit=&cursor= (CONTRACT mục 5). Chỉ gửi limit/cursor; KHÔNG gửi ownerId/uid (Backend lấy uid từ token).
@@ -210,6 +275,9 @@ export function createBackendClient({ baseUrl, getIdToken, fetchImpl, timeoutMs 
 export function createUnavailableBackendApi({ message, missing = [] }) {
   return {
     async confirmCloudinaryUpload() {
+      throw backendError(ERROR_CODE.CONFIG, KIND.CONFIG, message, { missing, unavailable: true });
+    },
+    async authorizeCloudinaryUpload() {
       throw backendError(ERROR_CODE.CONFIG, KIND.CONFIG, message, { missing, unavailable: true });
     },
     async listImages() {

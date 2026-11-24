@@ -6,13 +6,17 @@ import { ROUTES } from '../constants/routes';
 import { useUploadServices } from '../hooks/useUploadServices';
 import { useUploadFlow } from '../hooks/useUploadFlow';
 import { MockBadge } from '../components/common/MockBadge';
+import { RealBadge } from '../components/common/RealBadge';
 import { UploadFlowStatus } from '../components/upload/UploadFlowStatus';
 
-// H4A: luồng upload chạy HOÀN TOÀN bằng MOCK (nén thật cục bộ; upload và confirm giả lập).
-// Không gọi Cloudinary/FastAPI thật, không ghi Firestore.
+// Trang Upload có BA chế độ do composition root quyết định (services.mode), không bao giờ tự đoán hay fallback:
+//   'mock'    — H4A: nén thật cục bộ; upload và confirm giả lập. Không gọi Cloudinary/FastAPI thật, không ghi Firestore. MẶC ĐỊNH.
+//   'real'    — H4B-5: Signed Upload (authorize -> upload có chữ ký -> confirm) với Backend localhost; chỉ khi VITE_UPLOAD_MODE=real đủ điều kiện.
+//   'invalid' — cấu hình sai: hiện lỗi cấu hình, KHÔNG có vùng chọn ảnh, KHÔNG MOCK, KHÔNG upload không ký, không request nào.
 export function UploadPage() {
   const services = useUploadServices();
-  const { state, selectFile, retry, cancel, reset } = useUploadFlow();
+  const { state, selectFile, retry, restart, cancel, reset } = useUploadFlow();
+  const mode = services.mode;
   const [searchParams] = useSearchParams();
   const scenario = searchParams.get('mock') || 'normal';
   const inputRef = useRef(null);
@@ -24,7 +28,7 @@ export function UploadPage() {
   }, [services, scenario]);
 
   const running = state.phase === 'running';
-  const showDropzone = !running && state.phase !== 'done';
+  const showDropzone = mode !== 'invalid' && !running && state.phase !== 'done';
 
   function handleFiles(files) {
     const file = files?.[0];
@@ -35,37 +39,55 @@ export function UploadPage() {
     <section aria-labelledby="upload-title">
       <header className="page-header">
         <h1 id="upload-title">
-          Tải ảnh lên <MockBadge />
+          Tải ảnh lên {mode === 'real' ? <RealBadge label="REAL" /> : mode === 'mock' ? <MockBadge /> : null}
         </h1>
         <p className="page-header__text">
-          Ảnh được kiểm tra, nén thành 3 phiên bản WebP (thumbnail, medium, full) ngay trên trình duyệt rồi chạy qua
-          luồng Hybrid giả lập.
+          {mode === 'real'
+            ? 'Ảnh được kiểm tra, nén thành 3 phiên bản WebP (thumbnail, medium, full) ngay trên trình duyệt, xin quyền tải lên từ Backend, tải lên Cloudinary bằng chữ ký rồi chờ Backend xác nhận.'
+            : 'Ảnh được kiểm tra, nén thành 3 phiên bản WebP (thumbnail, medium, full) ngay trên trình duyệt rồi chạy qua luồng Hybrid giả lập.'}
         </p>
       </header>
 
-      <p className="mock-banner" role="note">
-        <strong>MOCK – Không upload Cloudinary, không ghi Firestore.</strong> Bước nén là thật nhưng chỉ chạy trong
-        trình duyệt; upload và xác nhận Backend đều là giả lập, kết quả không phải dữ liệu thật.
-      </p>
+      {mode === 'mock' && (
+        <p className="mock-banner" role="note">
+          <strong>MOCK – Không upload Cloudinary, không ghi Firestore.</strong> Bước nén là thật nhưng chỉ chạy trong
+          trình duyệt; upload và xác nhận Backend đều là giả lập, kết quả không phải dữ liệu thật.
+        </p>
+      )}
+      {mode === 'real' && (
+        <p className="notice" role="note">
+          <strong>REAL – Ảnh sẽ được tải lên Cloudinary và ghi vào Firestore qua Backend (môi trường phát triển).</strong> Chỉ dùng ảnh thử
+          không nhạy cảm. Upload dùng chữ ký do Backend cấp; nếu cấu hình sai, trang báo lỗi cấu hình chứ không tự đổi chế độ.
+        </p>
+      )}
+      {mode === 'invalid' && (
+        <div className="upload-status upload-status--error" role="alert">
+          <p className="upload-status__title">Lỗi cấu hình Upload</p>
+          <p>{services.configError?.message}</p>
+          <p className="upload-status__muted">Trang không upload gì, không dùng MOCK và không upload không ký thay thế.</p>
+        </div>
+      )}
       {services.notice && (
         <p className="notice" role="note">
           {services.notice}
         </p>
       )}
 
-      <nav className="scenario-bar" aria-label="Kịch bản MOCK của trang Upload">
-        <span>Thử trạng thái MOCK:</span>
-        {services.scenarios.map((s) => (
-          <Link
-            key={s.value}
-            to={s.value === 'normal' ? ROUTES.upload : `${ROUTES.upload}?mock=${s.value}`}
-            className={`scenario-bar__link${scenario === s.value ? ' scenario-bar__link--active' : ''}`}
-            aria-current={scenario === s.value ? 'true' : undefined}
-          >
-            {s.label}
-          </Link>
-        ))}
-      </nav>
+      {mode === 'mock' && services.scenarios.length > 0 && (
+        <nav className="scenario-bar" aria-label="Kịch bản MOCK của trang Upload">
+          <span>Thử trạng thái MOCK:</span>
+          {services.scenarios.map((s) => (
+            <Link
+              key={s.value}
+              to={s.value === 'normal' ? ROUTES.upload : `${ROUTES.upload}?mock=${s.value}`}
+              className={`scenario-bar__link${scenario === s.value ? ' scenario-bar__link--active' : ''}`}
+              aria-current={scenario === s.value ? 'true' : undefined}
+            >
+              {s.label}
+            </Link>
+          ))}
+        </nav>
+      )}
 
       {showDropzone && (
         <div
@@ -103,7 +125,7 @@ export function UploadPage() {
         </div>
       )}
 
-      <UploadFlowStatus state={state} onRetry={retry} onCancel={cancel} onReset={reset} />
+      <UploadFlowStatus state={state} mode={mode === 'real' ? 'real' : 'mock'} onRetry={retry} onRestart={restart} onCancel={cancel} onReset={reset} />
     </section>
   );
 }

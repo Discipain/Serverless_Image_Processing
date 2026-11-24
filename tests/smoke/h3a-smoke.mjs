@@ -441,7 +441,8 @@ for (const f of files) {
   check(`mã nguồn ${n}/không import firebase/firestore`, !/from ['"][^'"]*(firebase|firestore)/i.test(code));
   check(`mã nguồn ${n}/không dùng Cloudinary uploader`, !/cloudinaryUploader|uploadVariantsToCloudinary|XMLHttpRequest|api\.cloudinary\.com/.test(code));
 }
-check('mã nguồn backendClient/chỉ có endpoint confirm của CONTRACT', (strip(read(files[0])).match(/\/images\/[a-z/]+/g) || []).join() === '/images/cloudinary/confirm');
+// H4B-4 (đã được duyệt): backendClient có THÊM đúng một endpoint — POST /images/cloudinary/authorize (Backend 30318ee). Không endpoint nào khác.
+check('mã nguồn backendClient/chỉ có endpoint confirm và authorize của CONTRACT', (strip(read(files[0])).match(/\/images\/[a-z/]+/g) || []).join() === '/images/cloudinary/confirm,/images/cloudinary/authorize');
 const all = [];
 (function walk(d) { for (const n of fs.readdirSync(d)) { const p = path.join(d, n); fs.statSync(p).isDirectory() ? walk(p) : /\.(js|jsx)$/.test(n) && all.push(p); } })(path.join(root, 'src'));
 // Giá trị Cloudinary thật KHÔNG hardcode trong test: lấy từ biến môi trường của người chạy (nếu có).
