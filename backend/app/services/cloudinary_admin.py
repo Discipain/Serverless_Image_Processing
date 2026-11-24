@@ -113,6 +113,7 @@ class HttpCloudinaryAdminClient:
         except Exception as exc:  # urllib3.exceptions.* (timeout, mất kết nối, TLS...) hoặc OSError
             logger.warning("Admin API: lỗi kết nối (%s)", type(exc).__name__)
             raise AdminUnavailable("Không kết nối được Admin API") from None
+        body_fully_read = False
         try:
             status = response.status
             if status == 420 or status == 429:
@@ -124,8 +125,9 @@ class HttpCloudinaryAdminClient:
             if status != 200:
                 raise AdminUnavailable(f"Admin API trả trạng thái {status}")
             body = self._read_body(response, deadline)
+            body_fully_read = True
         finally:
-            response.release_conn()
+            self._release(response, reusable=body_fully_read)
         try:
             result = json.loads(body.decode("utf-8"))
         except (ValueError, UnicodeDecodeError, RecursionError):
@@ -133,6 +135,21 @@ class HttpCloudinaryAdminClient:
         if not isinstance(result, dict):
             raise AdminUnavailable("Response Admin API sai định dạng")
         return result
+
+    @staticmethod
+    def _release(response: Any, *, reusable: bool) -> None:
+        """Trả connection cho pool. `preload_content=False` nên connection chỉ an toàn để dùng lại khi body đã được đọc HẾT.
+
+        Nếu body chưa đọc hết (status lỗi chưa đọc, quá 256 KB, quá hạn, bị cắt, lỗi đọc) thì ĐÓNG connection TRƯỚC (không drain: drain không giới hạn có thể vượt
+        hạn chót), rồi mới `release_conn()` để trả slot — pool sẽ tự mở connection mới ở lần sau, không bao giờ giao lại socket còn dữ liệu dở.
+        """
+        try:
+            if not reusable:
+                response.close()
+        except Exception as exc:  # dọn dẹp không được che lỗi gốc
+            logger.warning("Admin API: lỗi đóng connection (%s)", type(exc).__name__)
+        finally:
+            response.release_conn()
 
     @staticmethod
     def _read_body(response: Any, deadline: float) -> bytes:

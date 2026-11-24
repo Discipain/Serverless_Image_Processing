@@ -1199,3 +1199,61 @@ def test_signed_mode_never_enters_the_legacy_code_path(env, fresh_store, monkeyp
     assert env.confirm(body).status_code == 200
     assert env.confirm(body).status_code == 200  # cả lần retry idempotent
     assert env.confirm(body, uid="user_B").status_code == 403
+
+
+# ================================================================== H4B-6.1: CORS phải expose Retry-After (BUG-3) — dùng CẤU HÌNH THẬT của app.main.app
+ORIGIN = "http://localhost:5173"
+
+
+def _cors_headers(res):
+    return {k.lower(): v for k, v in res.headers.items()}
+
+
+def test_cors_config_of_real_app_exposes_retry_after_and_keeps_other_options():
+    from starlette.middleware.cors import CORSMiddleware
+
+    from app.main import app
+
+    entry = next(m for m in app.user_middleware if m.cls is CORSMiddleware)
+    assert entry.kwargs["expose_headers"] == ["Retry-After"]
+    # các cấu hình CORS khác KHÔNG đổi ở bước này
+    assert entry.kwargs["allow_credentials"] is True and entry.kwargs["allow_methods"] == ["*"] and entry.kwargs["allow_headers"] == ["*"]
+    assert "*" in entry.kwargs["allow_origins"] and settings.FRONTEND_URL in entry.kwargs["allow_origins"]
+
+
+def test_cross_origin_503_from_admin_420_exposes_retry_after(env, fresh_store):
+    auth, body = env.ready()
+    env.admin.raises = AdminRateLimited(120)
+    res = env.client.post(URL, headers={**bearer("user_A"), "Origin": ORIGIN}, json=body)
+    h = _cors_headers(res)
+    assert res.status_code == 503 and h["retry-after"] == "120"  # Backend vẫn gửi Retry-After
+    assert "retry-after" in [x.strip().lower() for x in h["access-control-expose-headers"].split(",")]  # và trình duyệt được phép đọc
+    assert h["access-control-allow-origin"] in (ORIGIN, "*")  # chính sách origin sẵn có, không đổi ở bước này
+
+
+def test_cross_origin_429_from_authorize_rate_limit_exposes_retry_after(env, monkeypatch):
+    monkeypatch.setattr(settings, "UPLOAD_GRANTS_PER_HOUR", 1)
+    first = env.client.post(AUTH_URL, headers={**bearer("user_A"), "Origin": ORIGIN}, json=authorize_body(IMAGE_ID))
+    assert first.status_code == 200
+    res = env.client.post(AUTH_URL, headers={**bearer("user_A"), "Origin": ORIGIN}, json=authorize_body(IMAGE_ID_2))
+    h = _cors_headers(res)
+    assert res.status_code == 429 and int(h["retry-after"]) >= 1
+    assert "retry-after" in [x.strip().lower() for x in h["access-control-expose-headers"].split(",")]
+
+
+def test_cross_origin_error_without_retry_after_still_has_cors_headers_and_no_retry_after(env, fresh_store):
+    auth, body = env.ready()
+    env.admin.raises = AdminUnavailable("500")
+    res = env.client.post(URL, headers={**bearer("user_A"), "Origin": ORIGIN}, json=body)
+    h = _cors_headers(res)
+    assert res.status_code == 503 and "retry-after" not in h and h["access-control-allow-origin"] in (ORIGIN, "*")
+
+
+def test_preflight_still_works_after_expose_headers():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    res = TestClient(app).options(AUTH_URL, headers={"Origin": ORIGIN, "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "authorization,content-type"})
+    h = _cors_headers(res)
+    assert res.status_code == 200 and h["access-control-allow-origin"] in (ORIGIN, "*") and "POST" in h["access-control-allow-methods"]
