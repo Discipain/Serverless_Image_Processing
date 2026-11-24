@@ -40,7 +40,19 @@ async function withEnv(lines, fn) {
   try { await fn(server); } finally { await server.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 }
 
-const T0 = Date.UTC(2026, 10, 24, 10, 0, 0);
+// Đồng hồ của "thế giới" giả LUÔN bắt đầu từ giờ hệ thống lúc dựng (không có mốc cố định trong quá khứ). Giao diện (UploadFlowStatus.useRemainingSeconds) đọc
+// Date.now() thật nên khi kiểm tra giao diện của một lỗi do thế giới giả tạo ra phải dùng CÙNG đồng hồ đó (withDateNow), không trộn đồng hồ giả với giờ thật.
+const startClock = () => Date.now();
+// Chạy fn với Date.now() CỐ ĐỊNH ở `at`, luôn khôi phục bằng finally. Chỉ dùng trong phạm vi một lần render; không áp dụng cho cả bộ test.
+function withDateNow(at, fn) {
+  const real = Date.now;
+  Date.now = () => at;
+  try {
+    return fn();
+  } finally {
+    Date.now = real;
+  }
+}
 const REAL_ENV = { VITE_UPLOAD_MODE: 'real', VITE_BACKEND_MODE: 'real', VITE_API_BASE_URL: 'http://127.0.0.1:8000', VITE_CLOUDINARY_CLOUD_NAME: CLOUD, VITE_CLOUDINARY_UPLOAD_PRESET: 'unsigned-preset-must-not-be-used' };
 const FIREBASE_AUTH_SERVICES = (auth) => ({ mode: 'firebase', isMock: false, useCases: { getIdToken: async () => `token-${auth.uid}`, observeAuthState: auth.observe } });
 
@@ -142,7 +154,7 @@ try {
 
   // Thế giới REAL qua DI: Backend giả, Cloudinary giả, auth giả
   function world({ uid = 'alice', ttlMs = 900_000, processor = fakeProcessor(), cloudDelay = 0 } = {}) {
-    const clock = { now: T0 };
+    const clock = { now: startClock() };
     const cloud = createFakeCloud({ clock });
     const backend = createFakeBackend({ clock, cloud, ttlMs });
     const auth = createFakeAuth(uid);
@@ -187,7 +199,7 @@ try {
 
   // 3c. signedOptions không ghi đè được cấu hình đã kiểm tra
   {
-    const clock = { now: T0 }; const cloud = createFakeCloud({ clock }); const backend = createFakeBackend({ clock, cloud });
+    const clock = { now: startClock() }; const cloud = createFakeCloud({ clock }); const backend = createFakeBackend({ clock, cloud });
     const auth = createFakeAuth('alice');
     const svc = createUploadModeServices({
       env: REAL_ENV, isDev: true, authServices: FIREBASE_AUTH_SERVICES(auth), createMockServices: () => ({}), fetchImpl: backend.fetch,
@@ -595,6 +607,22 @@ try {
     check('ui/17. Retry-After: nút bị VÔ HIỆU HÓA kèm "chờ N giây" và nêu thời gian Backend yêu cầu', /disabled/.test(v) && /chờ (119|120) giây/.test(v) && v.includes('Backend yêu cầu chờ khoảng 120 giây'));
     v = R('real', errState({ retryNotBefore: Date.now() - 1000, retryAfterSeconds: 5, code: 'QUOTA_EXCEEDED' }));
     check('ui/18. mốc đã qua: nút bật lại (không disabled, không đếm ngược)', !/disabled/.test(v) && !/chờ \d+ giây\)/.test(v) && v.includes('Thử lại xác nhận'));
+    // H4B-7B.2.1: đếm ngược tại từng thời điểm, độc lập với ngày giờ thật (đồng hồ ghim bằng withDateNow, luôn khôi phục)
+    const realDateNow = Date.now;
+    for (const [label, pin] of [['quá khứ xa (2001)', Date.UTC(2001, 0, 1)], ['mốc cũ 2026-11-24T10:00Z', Date.UTC(2026, 10, 24, 10, 0, 0)], ['tương lai xa (2099)', Date.UTC(2099, 11, 31, 23, 59, 59)], ['giờ hệ thống hiện tại', Date.now()]]) {
+      const notBefore = pin + 60_000;
+      const at = (offsetMs, nb = notBefore) => withDateNow(pin + offsetMs, () => R('real', errState({ retryNotBefore: nb, retryAfterSeconds: 60, code: 'QUOTA_EXCEEDED' })));
+      const locked = (html, n) => /disabled/.test(html) && new RegExp(`chờ ${n} giây`).test(html);
+      const open = (html) => !/disabled/.test(html) && !/chờ \d+ giây\)/.test(html) && html.includes('Thử lại xác nhận');
+      check(`ui/đồng hồ ${label}: trước hạn (chờ 60 giây) nút bị khóa; còn 1 giây vẫn khóa`, locked(at(0), 60) && locked(at(59_000), 1) && locked(at(59_999), 1));
+      check(`ui/đồng hồ ${label}: ĐÚNG thời điểm hết hạn nút mở (không đếm ngược)`, open(at(60_000)));
+      check(`ui/đồng hồ ${label}: sau hết hạn (1 ms, 1 s, 1 giờ) nút vẫn mở`, open(at(60_001)) && open(at(61_000)) && open(at(3_600_000)));
+      check(`ui/đồng hồ ${label}: mốc cách 1 ngày trong quá khứ => mở; cách 1 ngày trong tương lai => khóa "chờ 86400 giây"`, open(at(0, pin - 86_400_000)) && locked(at(0, pin + 86_400_000), 86_400));
+      check(`ui/đồng hồ ${label}: không có mốc (null) => nút mở`, open(at(0, null)));
+    }
+    let threw = false;
+    try { withDateNow(1, () => { throw new Error('mô phỏng lỗi khi render'); }); } catch { threw = true; }
+    check('ui/withDateNow luôn khôi phục Date.now (kể cả khi render ném lỗi), không rò sang test khác', threw && Date.now === realDateNow && Math.abs(Date.now() - realDateNow()) < 50);
     check('ui/remainingSeconds: làm tròn lên, 0 khi không mốc/đã qua', remainingSeconds(10_500, 10_000) === 1 && remainingSeconds(11_000, 10_000) === 1 && remainingSeconds(10_000, 10_000) === 0 && remainingSeconds(null, 1) === 0 && remainingSeconds(5, 10) === 0 && remainingSeconds(121_000, 0) === 121);
     v = R('real', errState({ kind: K.GRANT_EXPIRED, retryable: false, newSessionRequired: true, restartable: true, stage: 'UPLOADING', uploadedVariants: ['thumbnail'], message: 'Quyền upload đã hết hạn.' }));
     check('ui/19. grant hết hạn: tiêu đề riêng, nút "Bắt đầu lại", KHÔNG nút Thử lại, nêu asset không bị tự xóa', v.includes('Quyền upload đã hết hạn') && v.includes('Bắt đầu lại (phiên upload mới)') && !v.includes('Thử lại') && v.includes('KHÔNG bị tự xóa'));
@@ -618,9 +646,16 @@ try {
     const failedWorld = world();
     failedWorld.backend.faults.confirm.push({ status: 503, detail: 'Upload verification unavailable', headers: { 'Retry-After': '60' } });
     failedWorld.ctl.selectFile(jpeg()); await failedWorld.idle();
-    v = R('real', failedWorld.state());
+    v = withDateNow(failedWorld.clock.now + 1000, () => R('real', failedWorld.state())); // cùng đồng hồ với controller: 1 giây sau khi lỗi xảy ra
     check('27. DOM lỗi REAL (có session thật) không chứa chữ ký/token/session', !/signature|api_key|Bearer|authoriz|a{40}|[0-9a-f]{64}/i.test(v), v.match(/signature|Bearer|authoriz|[0-9a-f]{64}/i)?.[0]);
-    check('real/lỗi 503 verification+Retry-After=60 vào UI: đếm ngược, disabled', failedWorld.state().error.retryAfterSeconds === 60 && /disabled/.test(v));
+    check('real/lỗi 503 verification+Retry-After=60 vào UI: đếm ngược, disabled', failedWorld.state().error.retryAfterSeconds === 60 && /disabled/.test(v) && /chờ 59 giây/.test(v));
+    // Hết đếm ngược chỉ MỞ nút: không tự gửi request; chỉ bấm tay mới retry (cùng đồng hồ với controller)
+    failedWorld.clock.now += 61_000;
+    await tick(30);
+    const afterExpiry = withDateNow(failedWorld.clock.now, () => R('real', failedWorld.state()));
+    check('real/hết đếm ngược 60s: nút mở lại (không disabled, không "chờ"), KHÔNG tự gửi confirm (vẫn 1 lần), vẫn ở lỗi', !/disabled/.test(afterExpiry) && !/chờ \d+ giây\)/.test(afterExpiry) && failedWorld.confirm() === 1 && failedWorld.state().phase === 'error');
+    failedWorld.ctl.retry(); await failedWorld.idle();
+    check('real/bấm thử lại thủ công sau hết đếm ngược: đúng 1 confirm mới (tổng 2), DONE, mốc đếm ngược được xóa', failedWorld.confirm() === 2 && failedWorld.state().phase === 'done' && failedWorld.ctl.debug.retryNotBefore() === 0);
     // MOCK hoàn tất vẫn không có link
     const { createUploadServices: cu } = await load('/src/app/createUploadServices.js');
     void cu;
