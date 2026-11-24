@@ -1209,16 +1209,17 @@ def _cors_headers(res):
     return {k.lower(): v for k, v in res.headers.items()}
 
 
-def test_cors_config_of_real_app_exposes_retry_after_and_keeps_other_options():
+def test_cors_config_of_real_app_exposes_retry_after_with_explicit_policy():
+    # H4B-7B.1: mục tiêu của test (expose Retry-After, BUG-3) GIỮ NGUYÊN. Phần "các cấu hình khác không đổi" trước đây khóa chính sách MỞ cũ
+    # (credentials=True, methods/headers=["*"], origin "*" + FRONTEND_URL) nên được cập nhật sang chính sách tường minh mới (xem test_cors_policy.py).
     from starlette.middleware.cors import CORSMiddleware
 
     from app.main import app
 
     entry = next(m for m in app.user_middleware if m.cls is CORSMiddleware)
     assert entry.kwargs["expose_headers"] == ["Retry-After"]
-    # các cấu hình CORS khác KHÔNG đổi ở bước này
-    assert entry.kwargs["allow_credentials"] is True and entry.kwargs["allow_methods"] == ["*"] and entry.kwargs["allow_headers"] == ["*"]
-    assert "*" in entry.kwargs["allow_origins"] and settings.FRONTEND_URL in entry.kwargs["allow_origins"]
+    assert entry.kwargs["allow_credentials"] is False and "*" not in entry.kwargs["allow_methods"] and "*" not in entry.kwargs["allow_headers"]
+    assert "*" not in entry.kwargs["allow_origins"] and ORIGIN in entry.kwargs["allow_origins"]
 
 
 def test_cross_origin_503_from_admin_420_exposes_retry_after(env, fresh_store):
@@ -1257,3 +1258,37 @@ def test_preflight_still_works_after_expose_headers():
     res = TestClient(app).options(AUTH_URL, headers={"Origin": ORIGIN, "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "authorization,content-type"})
     h = _cors_headers(res)
     assert res.status_code == 200 and h["access-control-allow-origin"] in (ORIGIN, "*") and "POST" in h["access-control-allow-methods"]
+
+
+# ================================================================== H4B-7B.1: authorize + signed confirm + Retry-After vẫn chạy qua CORS với CẢ HAI origin mặc định
+LOOPBACK_ORIGIN = "http://127.0.0.1:5173"
+
+
+@pytest.mark.parametrize("origin,image_id", [(ORIGIN, IMAGE_ID), (LOOPBACK_ORIGIN, IMAGE_ID_2)])
+def test_authorize_and_signed_confirm_work_through_cors_for_both_default_origins(env, fresh_store, origin, image_id):
+    headers = {**bearer("user_A"), "Origin": origin}
+    res = env.client.post(AUTH_URL, headers=headers, json=authorize_body(image_id))
+    assert res.status_code == 200 and _cors_headers(res)["access-control-allow-origin"] == origin
+    auth = res.json()
+    env.upload(auth, authorize_body(image_id))
+    done = env.client.post(URL, headers=headers, json=env.confirm_body(auth))
+    h = _cors_headers(done)
+    assert done.status_code == 200 and done.json()["status"] == "DONE" and done.json()["imageId"] == image_id
+    assert h["access-control-allow-origin"] == origin and "access-control-allow-credentials" not in h
+
+
+@pytest.mark.parametrize("origin", [ORIGIN, LOOPBACK_ORIGIN])
+def test_retry_after_429_and_503_are_exposed_for_both_default_origins(env, fresh_store, monkeypatch, origin):
+    monkeypatch.setattr(settings, "UPLOAD_GRANTS_PER_HOUR", 1)
+    headers = {**bearer("user_A"), "Origin": origin}
+    assert env.client.post(AUTH_URL, headers=headers, json=authorize_body(IMAGE_ID)).status_code == 200
+    r429 = env.client.post(AUTH_URL, headers=headers, json=authorize_body(IMAGE_ID_2))
+    auth, body = env.ready(image_id="d3b6e4a2-9c53-4eaa-b134-5f7c8a9dbeb2", uid="user_B")  # người khác: không bị giới hạn của user_A
+    env.admin.raises = AdminRateLimited(90)
+    r503 = env.client.post(URL, headers={**bearer("user_B"), "Origin": origin}, json=body)
+    for res, code in ((r429, 429), (r503, 503)):
+        h = _cors_headers(res)
+        assert res.status_code == code and int(h["retry-after"]) >= 1
+        assert h["access-control-allow-origin"] == origin
+        assert "retry-after" in [x.strip().lower() for x in h["access-control-expose-headers"].split(",")]
+    assert _cors_headers(r503)["retry-after"] == "90"
