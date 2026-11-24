@@ -1347,3 +1347,30 @@ def test_signed_mode_with_an_injected_legacy_provider_still_never_falls_back_to_
     upload = env.client.post(UPLOAD_URL, headers=bearer("user_A"), json=UPLOAD_BODY)
     assert upload.status_code == 410 and "uploadPreset" not in upload.text and "test-unsigned-preset" not in upload.text
     assert set(fresh_store._docs) == {IMAGE_ID}
+
+
+# ================================================================== H4B-7B.3A: proxy Firebase Auth đã retire không ảnh hưởng luồng signed
+def test_signed_authorize_and_confirm_still_work_next_to_the_retired_firebase_auth_proxy(env, fresh_store, monkeypatch):
+    import urllib.request
+
+    from helpers import IMAGE_ID
+
+    urlopen_calls = []
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: urlopen_calls.append(a) or (_ for _ in ()).throw(AssertionError("urlopen không được gọi")))
+    retired = {"detail": "Firebase authentication endpoint is retired"}
+    for path in ("/auth/firebase/login", "/auth/firebase/register", "/auth/firebase/refresh"):
+        res = env.client.post(path, json={"email": "a@example.test", "password": "x", "refreshToken": "y"})
+        assert res.status_code == 410 and res.json() == retired
+
+    auth, body = env.ready()  # authorize (Bearer giả đã verify) + upload giả + chuẩn bị confirm
+    done = env.confirm(body)
+    assert done.status_code == 200 and done.json()["status"] == "DONE" and done.json()["imageId"] == IMAGE_ID
+    assert env.confirm(body).status_code == 200  # idempotent
+    assert env.confirm(body, uid="user_B").status_code == 403  # owner isolation
+
+    res = env.client.post("/auth/firebase/login", json={"email": "a@example.test", "password": "x"})  # sau khi có ảnh vẫn retire
+    assert res.status_code == 410
+    assert env.client.get(f"/images/{IMAGE_ID}", headers=bearer("user_A")).status_code == 200
+    assert env.client.get(f"/images/{IMAGE_ID}", headers=bearer("user_B")).status_code == 403
+    assert env.client.post(AUTH_URL, headers={"Authorization": "Bearer nope"}, json=authorize_body(IMAGE_ID_2)).status_code == 401
+    assert urlopen_calls == []

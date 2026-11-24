@@ -56,6 +56,13 @@ class LegacyUploadRetiredException(HTTPException):
         super().__init__(status_code=status.HTTP_410_GONE, detail=detail)
 
 
+class FirebaseAuthRetiredException(HTTPException):
+    """Proxy xác thực Firebase kiểu cũ (/auth/firebase/*) đã bị RETIRE (H4B-7B.3A). Frontend đăng nhập bằng Firebase SDK; Backend chỉ verify Bearer. Thông điệp chung, không lộ cấu hình."""
+
+    def __init__(self, detail: str = "Firebase authentication endpoint is retired"):
+        super().__init__(status_code=status.HTTP_410_GONE, detail=detail)
+
+
 class SignedUploadUnavailableException(HTTPException):
     """Tính năng cấp chữ ký upload đang tắt hoặc cấu hình Backend thiếu/sai. Không lộ tên hay giá trị cấu hình cho client."""
 

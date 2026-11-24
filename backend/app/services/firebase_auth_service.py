@@ -3,15 +3,19 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from app.config import settings
-from app.exceptions import UnauthorizedException
+from app.exceptions import FirebaseAuthRetiredException, UnauthorizedException
 
 
 class FirebaseAuthService:
     SIGN_IN_URL = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword"
     SIGN_UP_URL = "https://identitytoolkit.googleapis.com/v1/accounts:signUp"
     REFRESH_URL = "https://securetoken.googleapis.com/v1/token"
+    # H4B-7B.3A: proxy đã RETIRE. Cờ này chỉ là hằng số trong mã (KHÔNG đọc từ môi trường/cấu hình/request); mọi lời gọi bị chặn TRƯỚC khi đọc cấu hình credential hay mở mạng.
+    RETIRED = True
 
     def _post_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if self.RETIRED:
+            raise FirebaseAuthRetiredException()
         api_key = getattr(settings, "FIREBASE_WEB_API_KEY", None)
         if not api_key:
             raise RuntimeError("Thiếu cấu hình FIREBASE_WEB_API_KEY.")
