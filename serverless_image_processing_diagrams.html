@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Serverless Image Processing — Architecture & Sequence Diagrams</title>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "dark",
+      securityLevel: "loose",
+      flowchart: { curve: "basis", padding: 14 },
+      sequence: { actorMargin: 45, messageMargin: 28, useMaxWidth: true }
+    });
+
+    window.copyDiagramCode = async (id, btnEl) => {
+      const src = document.getElementById(id);
+      if (!src) return;
+      await navigator.clipboard.writeText(src.textContent.trim());
+      const prev = btnEl.textContent;
+      btnEl.textContent = "Đã copy!";
+      setTimeout(() => { btnEl.textContent = prev; }, 1400);
+    };
+  </script>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #121a30;
+      --panel-2: #17223e;
+      --border: #26365c;
+      --text: #e6edf8;
+      --muted: #93a4c7;
+      --accent: #4f8cff;
+      --code-bg: #080d1a;
+      --radius: 12px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+    }
+
+    header {
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 28px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 1.15rem;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .badge {
+      font-size: 0.75rem;
+      padding: 2px 9px;
+      border-radius: 999px;
+      background: rgba(79, 140, 255, 0.16);
+      color: #8ab4ff;
+      border: 1px solid rgba(79, 140, 255, 0.35);
+      font-weight: 600;
+    }
+
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    nav a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.84rem;
+      padding: 5px 10px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+    }
+
+    nav a:hover {
+      color: var(--text);
+      background: var(--panel-2);
+      border-color: var(--border);
+    }
+
+    main {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    section.card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+
+    .card-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .card-header h2 {
+      margin: 0;
+      font-size: 1.05rem;
+    }
+
+    button.copy-btn {
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+
+    button.copy-btn:hover {
+      background: #213056;
+    }
+
+    .diagram-box {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px;
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+
+    th, td {
+      border: 1px solid var(--border);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--panel-2);
+      color: #c7d7f8;
+    }
+
+    code {
+      background: var(--code-bg);
+      padding: 1px 6px;
+      border-radius: 5px;
+      font-size: 0.84em;
+      color: #93c5fd;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>
+      <span>Serverless Image Processing — Architecture Diagrams</span>
+      <span class="badge">Live Mermaid Viewer</span>
+    </h1>
+    <nav>
+      <a href="#arch">1. Tổng thể</a>
+      <a href="#upload-confirm">2. Upload &amp; Confirm</a>
+      <a href="#sync-pipeline">3. Sync Pipeline</a>
+      <a href="#delete-flow">4. Xóa Ảnh</a>
+      <a href="#folder-tree">5. Phân lớp</a>
+      <a href="#matrix">6. Dữ liệu &amp; Status</a>
+    </nav>
+  </header>
+
+  <main>
+    <section id="arch" class="card">
+      <div class="card-header">
+        <h2>1. Sơ đồ kiến trúc tổng thể hệ thống</h2>
+        <button class="copy-btn" onclick="copyDiagramCode('m1', this)">Copy Mermaid</button>
+      </div>
+      <div class="diagram-box">
+        <pre id="m1" class="mermaid">flowchart LR
+    subgraph Client["Frontend / Workbench (index.html)"]
+        UI["Test Workbench UI"]
+        FB_SDK["Firebase Auth Web SDK"]
+    end
+
+    subgraph Backend["FastAPI Backend"]
+        AUTH["get_current_uid\n(Bearer Token Auth)"]
+        ROUTES["Image & OAuth Routes\n(/images, /oauth/google)"]
+        SVC_IMG["ImageService\n(requestUpload, confirm,\nsync, get, list, delete)"]
+        SVC_CLD["Cloudinary Admin & Service\n(delete_resources, list_images)"]
+        SVC_DRV["GoogleDriveService\n(delete_file, folders, preview)"]
+        SVC_OAUTH["Google OAuth Service\n(user credentials)"]
+    end
+
+    subgraph Storage["Data & Cloud Providers"]
+        FS[("Cloud Firestore\nimages / cloudinaryAssets\n/ uploadGrants")]
+        CLD["Cloudinary\n(Assets + Admin API)"]
+        GDRV["Google Drive API v3\n(upload / processing / processed)"]
+    end
+
+    UI -->|Firebase Login| FB_SDK
+    FB_SDK -->|ID Token| UI
+    UI -->|HTTP + Bearer Token| AUTH
+    AUTH --> ROUTES
+    ROUTES --> SVC_IMG
+    SVC_IMG --> FS
+    SVC_IMG --> SVC_CLD
+    SVC_IMG --> SVC_DRV
+    SVC_DRV --> SVC_OAUTH
+    SVC_CLD -->|HTTPS REST| CLD
+    SVC_DRV -->|Drive v3 API| GDRV</pre>
+      </div>
+    </section>
+
+    <section id="upload-confirm" class="card">
+      <div class="card-header">
+        <h2>2. Luồng Upload + Confirm Cloudinary</h2>
+        <button class="copy-btn" onclick="copyDiagramCode('m2', this)">Copy Mermaid</button>
+      </div>
+      <div class="diagram-box">
+        <pre id="m2" class="mermaid">sequenceDiagram
+    autonumber
+    actor User as Client / Workbench
+    participant Route as image_routes.py
+    participant Svc as ImageService
+    participant Repo as image_repo / Firestore
+    participant Cld as Cloudinary
+
+    User->>Route: POST /images/upload-url (Bearer uid, metadata)
+    Route->>Svc: requestUpload(uid, filename, contentType, sizeBytes, provider="cloudinary")
+    Svc->>Svc: checkFile(...) & tạo imageId (UUID)
+    Svc->>Repo: save(doc với status="PENDING", currentFolder="upload")
+    Repo-->>Svc: ok
+    Svc-->>Route: {imageId, uploadUrl, cloudinaryConfig, image}
+    Route-->>User: 200 OK
+
+    User->>Cld: Upload ảnh trực tiếp lên Cloudinary (uploads/{uid})
+    Cld-->>User: Trả về các publicId / URL biến thể
+
+    User->>Route: POST /images/cloudinary/confirm (Bearer uid, 3 publicId & metrics)
+    Route->>Svc: confirmCloudinaryUpload(...)
+    Svc->>Svc: Kiểm tra đủ 3 publicId & checkFile(...)
+    Svc->>Repo: get_by_id(image_id)
+    alt Doc đã tồn tại
+        Repo-->>Svc: existing doc
+        Svc->>Svc: verifyOwner(existing, uid)
+    else Doc chưa tồn tại
+        Svc->>Svc: Khởi tạo doc mới cho uid
+    end
+    Svc->>Repo: save(doc với status="DONE", currentFolder="processed", variants, processingMs)
+    Repo-->>Svc: ok
+    Svc-->>Route: doc đã cập nhật
+    Route-->>User: 200 OK</pre>
+      </div>
+    </section>
+
+    <section id="sync-pipeline" class="card">
+      <div class="card-header">
+        <h2>3. Luồng Sync Google Drive Pipeline &amp; Cloudinary</h2>
+        <button class="copy-btn" onclick="copyDiagramCode('m3', this)">Copy Mermaid</button>
+      </div>
+      <div class="diagram-box">
+        <pre id="m3" class="mermaid">sequenceDiagram
+    autonumber
+    actor User as Client / Workbench
+    participant Route as image_routes.py
+    participant Svc as ImageService.syncExternalImages
+    participant Repo as image_repo
+    participant Drive as GoogleDriveService
+    participant Cld as cloudinary_service
+
+    User->>Route: POST /images/sync?folderId=... (Bearer uid)
+    Route->>Svc: syncExternalImages(uid, root_folder_id)
+    Svc->>Repo: list_by_owner(uid)
+    Repo-->>Svc: existing_docs (lọc known_drive_ids & known_cloud_ids)
+
+    Svc->>Drive: list_all_pipeline_images(uid, root_folder_id)
+    alt Đã liên kết Google Drive
+        Drive->>Drive: ensure_pipeline_folders(uid, root_folder_id)<br/>(root -> upload, processing, processed)
+        Drive-->>Svc: danh sách file ảnh theo stage (PENDING / PROCESSING / DONE)
+        loop Với mỗi file Drive mới
+            Svc->>Repo: save(doc với imageId="drive_<id>", provider="google_drive", previewUrl="/images/preview/<id>")
+        end
+    else Chưa đăng nhập / chưa liên kết Drive
+        Drive-->>Svc: Exception (bỏ qua an toàn)
+    end
+
+    Svc->>Cld: list_images(prefix="uploads/{uid}") (fallback prefix="" nếu rỗng)
+    Cld-->>Svc: danh sách file ảnh Cloudinary
+    loop Với mỗi asset Cloudinary mới
+        Svc->>Repo: save(doc với provider="cloudinary", status="DONE", variants)
+    end
+
+    Svc-->>Route: {syncedFromGoogleDrive, syncedFromCloudinary}
+    Route->>Svc: listImages(uid, auto_sync=False)
+    Svc->>Repo: list_by_owner(uid)
+    Repo-->>Svc: items
+    Route-->>User: 200 OK ({sync, ownerId, total, items})</pre>
+      </div>
+    </section>
+
+    <section id="delete-flow" class="card">
+      <div class="card-header">
+        <h2>4. Luồng xóa ảnh DELETE /images/{image_id}</h2>
+        <button class="copy-btn" onclick="copyDiagramCode('m4', this)">Copy Mermaid</button>
+      </div>
+      <div class="diagram-box">
+        <pre id="m4" class="mermaid">sequenceDiagram
+    autonumber
+    actor User as Client / Workbench
+    participant Route as delete_image_endpoint
+    participant Svc as ImageService.delete_image
+    participant FS as Firestore
+    participant Cld as Cloudinary Admin API
+    participant Drive as GoogleDriveService
+
+    User->>Route: DELETE /images/{image_id} (Bearer uid)
+    Route->>Svc: delete_image(uid, image_id)
+    Svc->>FS: GET images/{image_id}
+
+    alt Không tồn tại
+        FS-->>Svc: not exists
+        Svc-->>Route: ImageNotFoundError
+        Route-->>User: 404 Not Found
+    else ownerId != uid
+        FS-->>Svc: doc (khác ownerId)
+        Svc-->>Route: ForbiddenImageError
+        Route-->>User: 403 Forbidden
+    else provider == "cloudinary"
+        Svc->>Svc: extract_three_public_ids(doc, image_id)
+        Svc->>Cld: delete_resources(public_ids)
+        alt Lỗi / 429 / Timeout / 5xx
+            Cld-->>Svc: AdminError / AdminRateLimited / AdminUnavailable
+            Svc-->>Route: raise exception
+            Route-->>User: 503 Service Unavailable (giữ nguyên Firestore)
+        else Xóa thành công
+            Cld-->>Svc: deleted / not_found
+            Svc->>FS: WriteBatch commit<br/>(delete images/{id}, delete cloudinaryAssets/{sha256},<br/>set uploadGrants/{id}.status = "DELETED")
+            FS-->>Svc: committed
+            Svc-->>Route: None
+            Route-->>User: 204 No Content
+        end
+    else provider in {"google_drive", "drive"}
+        Svc->>Svc: _extract_drive_file_id(doc, image_id)
+        Svc->>Drive: delete_file(uid, drive_file_id)
+        alt Lỗi Drive API (trừ 404 coi như đã xóa)
+            Drive-->>Svc: AdminUnavailable
+            Svc-->>Route: raise exception
+            Route-->>User: 503 Service Unavailable (giữ nguyên Firestore)
+        else Xóa hoặc 404
+            Drive-->>Svc: ok
+            Svc->>FS: WriteBatch commit<br/>(delete images/{id}, cập nhật uploadGrants/{id} nếu tồn tại)
+            FS-->>Svc: committed
+            Svc-->>Route: None
+            Route-->>User: 204 No Content
+        end
+    else Provider khác
+        Svc-->>Route: UnsupportedProviderError
+        Route-->>User: 400 Bad Request
+    end</pre>
+      </div>
+    </section>
+
+    <section id="folder-tree" class="card">
+      <div class="card-header">
+        <h2>5. Sơ đồ cấu trúc thư mục &amp; phân lớp Backend</h2>
+        <button class="copy-btn" onclick="copyDiagramCode('m5', this)">Copy Mermaid</button>
+      </div>
+      <div class="diagram-box">
+        <pre id="m5" class="mermaid">flowchart TB
+    ROOT["backend/"]
+    ROOT --> APP["app/"]
+    ROOT --> UIFILE["index.html (Test Workbench)"]
+
+    APP --> MAIN["main.py / config.py / exceptions.py / auth.py"]
+    APP --> ROUTES_DIR["routes/\n• image_routes.py\n• oauth_routes.py"]
+    APP --> REPO_DIR["repositories/\n• image_repository.py"]
+    APP --> SVC_DIR["services/\n• image_service.py\n• cloudinary_admin.py\n• cloudinary_service.py\n• google_drive.py\n• google_oauth.py"]</pre>
+      </div>
+    </section>
+
+    <section id="matrix" class="card">
+      <div class="card-header">
+        <h2>6. Bảng ánh xạ trạng thái &amp; mô hình dữ liệu chính</h2>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Thành phần / Mã</th>
+            <th>Vai trò hoặc ý nghĩa trong hệ thống</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>images/{imageId}</code></td>
+            <td>Metadata ảnh (<code>ownerId</code>, <code>provider</code>, <code>driveFileId</code>, <code>variants</code>, <code>status</code>, <code>currentFolder</code>)</td>
+          </tr>
+          <tr>
+            <td><code>cloudinaryAssets/{sha256(public_id)}</code></td>
+            <td>Bản ghi theo dõi từng asset Cloudinary, xóa cùng <code>WriteBatch</code> khi xóa ảnh</td>
+          </tr>
+          <tr>
+            <td><code>uploadGrants/{imageId}</code></td>
+            <td>Grant upload; chuyển <code>status = "DELETED"</code> khi xóa để chặn confirm lại (<code>409</code>)</td>
+          </tr>
+          <tr>
+            <td><code>204</code> / <code>400</code> / <code>403</code> / <code>404</code> / <code>503</code></td>
+            <td>Xóa thành công / Provider không hỗ trợ / Sai chủ sở hữu / Không tìm thấy / Lỗi upstream giữ nguyên doc</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>
