@@ -1,43 +1,39 @@
-# Test Plan — khung ngày 2, chạy chi tiết ngày 12
+# Test Plan — Bản client-side, khung ngày 2, chạy chi tiết ngày 12
 
 ## 1. Mục tiêu
 
-Chứng minh hệ thống chạy đúng luồng, chịu lỗi tốt, chi phí trong free tier.
+Chứng minh nén ở trình duyệt chạy ổn, chi phí = 0 đồng.
 
-## 2. Metric chốt (định nghĩa ngay từ ngày 2)
+## 2. Metric chốt
 
-| Metric | Định nghĩa | Cách tính | Đạt khi |
-|---|---|---|---|
-| Tỉ lệ DONE | Số ảnh `DONE` / tổng ảnh hợp lệ | Đếm doc Firestore sau mỗi batch test | ≥ 95/100 ảnh |
-| Thời gian xử lý | `processingMs` = lúc `DONE` trừ lúc `PROCESSING` | Đọc field `processingMs`, tính trung bình + p95 | Trung bình < 10 giây/ảnh |
-| p95 | 95% ảnh xử lý nhanh hơn giá trị này | Sắp xếp `processingMs` tăng dần, lấy vị trí 95% | p95 < 15 giây |
-| % tiết kiệm dung lượng | `(1 - processedSize / originalSize) × 100` | Đọc 2 field trên doc `DONE` | Trung bình > 50% (nhờ WebP) |
-| Từ chối file lỗi | Ảnh > 10MB bị 413, file giả bị `FAILED` đúng | Kiểm tra mã lỗi + `errorReason` | 100% file lỗi bị chặn đúng |
-| Chi phí | Đọc Firebase Usage + Billing | Chụp màn hình console ngày 12 | Nằm trong free tier, ~0 đồng |
+| Metric | Cách tính | Đạt khi |
+|---|---|---|
+| Tỉ lệ DONE | Đếm doc Firestore sau mỗi batch | ≥ 95/100 ảnh |
+| Thời gian nén | `processingMs` ở máy người dùng, trung bình + p95 | Trung bình < 10 giây/ảnh, p95 < 15 giây |
+| p95 | 95% ảnh nén nhanh hơn giá trị này | Loại 5% máy yếu nhất ra |
+| % tiết kiệm | `(1 - processedSize / originalSize) × 100` | Trung bình > 50% |
+| Chặn file lỗi | Ảnh >10MB chặn trước khi nén, file giả → `FAILED` | 100% đúng |
+| Chi phí | Chụp Firebase Usage + Billing | 0 đồng, không bật Blaze |
 
-Giải thích nhanh cho người mới:
-- **Trung bình** là thời gian xử lý cộng lại chia đều.
-- **p95** là mức mà 95% ảnh đều nhanh hơn nó — dùng p95 thay vì giá trị cao nhất để tránh 1-2 ảnh lỗi làm lệch số liệu.
-- **% tiết kiệm** cho thấy nén WebP có hiệu quả hay không.
+p95 là mức mà 95% ảnh đều nhanh hơn nó — dùng để trừ hao máy yếu.
 
-## 3. Bộ dữ liệu test (chuẩn bị trước ngày 12)
+## 3. Bộ dữ liệu test
 
-- 100 ảnh hợp lệ: trộn jpg/png/webp, kích thước 100KB–8MB.
-- 5 ảnh quá khổ > 10MB (kỳ vọng bị 413 ngay).
-- 5 file giả: đổi đuôi `.txt` thành `.jpg` (kỳ vọng `FAILED` với `errorReason` rõ ràng).
-- Chia batch: 10 → 50 → 100 ảnh, mỗi batch lặp 3 lần, ghi số liệu vào sheet.
+- 100 ảnh hợp lệ (jpg/png/webp, 100KB–8MB).
+- 5 ảnh >10MB (kỳ vọng chặn ngay).
+- 5 file giả đổi đuôi txt→jpg (kỳ vọng `FAILED`).
+- Batch 10 → 50 → 100, mỗi batch lặp 2 lần trên 2 máy khác nhau (máy mạnh + máy yếu), ghi vào sheet.
 
 ## 4. Kịch bản ngày 12
 
-1. Upload batch 10 ảnh, ghi tỉ lệ DONE + trung bình + p95.
-2. Upload batch 50, rồi 100 ảnh cùng lúc — kiểm tra hệ thống có nghẽn không.
-3. Upload 5 ảnh quá khổ, 5 file giả — kiểm tra bị từ chối đúng.
-4. Thử retry 1 ảnh FAILED — kiểm tra về `PENDING` rồi `DONE`.
-5. Thử đọc trộm: user A gọi `getImage` của user B — kỳ vọng 403.
-6. Chụp màn hình Firebase Usage/Billing + Cloud Logging.
+1. Batch 10, 50, 100 ảnh, ghi DONE + trung bình + p95.
+2. Upload 5 ảnh quá khổ, 5 file giả.
+3. Retry 1 ảnh FAILED.
+4. User A đọc trộm ảnh user B → kỳ vọng bị chặn.
+5. Tắt mạng giữa chừng → kỳ vọng doc ở `PENDING`, mở lại gallery tự dọn hoặc retry được.
+6. Chụp Usage/Billing chứng minh 0 đồng.
 
-## 5. Kết quả bàn giao
+## 5. Bàn giao
 
-- Sheet số liệu 3 batch + biểu đồ trung bình/p95/% tiết kiệm.
-- Báo cáo 1 trang: đạt/không đạt từng metric, chi phí thực tế.
-- Ảnh chụp console + video demo luồng lỗi → retry.
+- Sheet số liệu 2 máy + biểu đồ trung bình/p95/% tiết kiệm.
+- Báo cáo 1 trang + ảnh Usage + video demo lỗi → retry.
