@@ -214,6 +214,14 @@
       background: #92400e;
     }
 
+    button.danger {
+      background: #b91c1c;
+    }
+
+    button.danger:hover {
+      background: #991b1b;
+    }
+
     .session-box {
       margin-top: 12px;
       padding: 10px 12px;
@@ -267,6 +275,11 @@
       border-color: var(--accent);
     }
 
+    .img-card.selected {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+
     .img-thumb {
       width: 100%;
       height: 130px;
@@ -288,6 +301,22 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+
+    .provider-tag {
+      display: inline-block;
+      width: fit-content;
+      padding: 1px 7px;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      background: rgba(79, 140, 255, 0.16);
+      color: #93c5fd;
+    }
+
+    .provider-tag.drive {
+      background: rgba(245, 158, 11, 0.16);
+      color: #fcd34d;
     }
 
     .inspector {
@@ -507,17 +536,17 @@
         </div>
       </section>
 
-      <!-- 4. Sync, List, Status & Drive Preview -->
+      <!-- 4. Sync, List, Status, Delete & Drive Preview -->
       <section class="card">
-        <h2>4. Gallery, Sync & Drive Preview</h2>
+        <h2>4. Gallery, Sync, Delete & Drive Preview</h2>
         <div class="grid-2">
           <div>
             <label>Root Folder ID (optional, cho /sync & /images)</label>
             <input id="queryFolderId" type="text" placeholder="Drive folder ID" />
           </div>
           <div>
-            <label>Image ID (cho GET /images/{image_id})</label>
-            <input id="statusImageId" type="text" placeholder="Nhập imageId để xem chi tiết" />
+            <label>Image ID (cho GET /images/{image_id} &amp; DELETE /images/{image_id})</label>
+            <input id="statusImageId" type="text" placeholder="Nhập imageId (Cloudinary hoặc Google Drive)" />
           </div>
         </div>
         <div class="grid-2" style="margin-top: 8px;">
@@ -526,8 +555,21 @@
             <input id="previewDriveFileId" type="text" placeholder="Nhập drive_file_id" />
           </div>
           <div>
+            <label>Provider ảnh đang chọn (cloudinary / google_drive / drive)</label>
+            <input id="selectedImageProvider" type="text" readonly placeholder="Tự điền khi click card" />
+          </div>
+        </div>
+        <div class="grid-2" style="margin-top: 8px;">
+          <div>
             <label>UID Preview (mặc định lấy từ phiên hiện tại)</label>
             <input id="previewUid" type="text" placeholder="uid" />
+          </div>
+          <div>
+            <label>Chế độ xác nhận khi bấm Xóa</label>
+            <select id="confirmBeforeDelete">
+              <option value="true" selected>Hỏi xác nhận trước khi DELETE</option>
+              <option value="false">Gửi DELETE ngay (tiện test nhanh 204 / 400 / 403 / 404)</option>
+            </select>
           </div>
         </div>
 
@@ -535,7 +577,12 @@
           <button onclick="syncImages()">POST /images/sync</button>
           <button class="secondary" onclick="listImages()">GET /images</button>
           <button class="secondary" onclick="getImageStatus()">GET /images/{id}</button>
+          <button class="danger" onclick="deleteSelectedImage()">DELETE /images/{id}</button>
+          <button class="warn" onclick="testDeleteGoogleDriveImage()">Test Xóa Google Drive</button>
           <button class="secondary" onclick="previewDriveImage()">Preview Drive Image</button>
+        </div>
+        <div class="hint">
+          Xóa ảnh <strong>Cloudinary</strong> hoặc <strong>Google Drive</strong> qua <code>DELETE /images/{id}</code> trả <code>204 No Content</code> khi thành công, hoặc <code>400 {"detail": "Unsupported provider"}</code> nếu backend chưa bật xóa cho provider đó.
         </div>
 
         <div id="drivePreviewContainer" style="margin-top: 12px; display: none;">
@@ -707,7 +754,10 @@
 
     async function apiRequest(method, path, { body = null, requiresAuth = true } = {}) {
       const url = `${getBaseUrl()}${path}`;
-      const headers = { "Content-Type": "application/json" };
+      const headers = {};
+      if (body !== null) {
+        headers["Content-Type"] = "application/json";
+      }
       if (requiresAuth) {
         const token = getBearer();
         if (token) {
@@ -719,14 +769,16 @@
       const resp = await fetch(url, {
         method,
         headers,
-        body: body ? JSON.stringify(body) : null
+        body: body !== null ? JSON.stringify(body) : null
       });
       const latency = Math.round(performance.now() - start);
       const text = await resp.text();
-      let parsed = text;
-      try {
-        parsed = JSON.parse(text);
-      } catch (_) {}
+      let parsed = text || (resp.status === 204 ? "(204 No Content - empty body)" : "");
+      if (text) {
+        try {
+          parsed = JSON.parse(text);
+        } catch (_) {}
+      }
 
       renderResponse(method, path, resp.status, latency, parsed);
       return { status: resp.status, data: parsed };
@@ -908,11 +960,19 @@
         contentType: ctype
       }, null, 2);
     };
+
     window.confirmCloudinaryUpload = async () => {
       const raw = document.getElementById("confirmPayload").value;
       const body = JSON.parse(raw);
       await apiRequest("POST", "/images/cloudinary/confirm", { body });
     };
+
+    function detectProvider(item) {
+      const raw = (item?.provider || item?.source || item?.storageProvider || "").toString().toLowerCase();
+      if (raw) return raw;
+      if (item?.driveFileId || item?.drive_file_id) return "google_drive";
+      return "cloudinary";
+    }
 
     function renderGallery(data) {
       const grid = document.getElementById("galleryGrid");
@@ -920,23 +980,32 @@
       const items = Array.isArray(data) ? data : (data?.images || data?.items || []);
       if (!Array.isArray(items) || items.length === 0) return;
 
+      const currentSelectedId = document.getElementById("statusImageId").value.trim();
+
       items.forEach((item) => {
+        const id = item.imageId || item.id || "";
+        const driveId = item.driveFileId || item.drive_file_id || "";
+        const provider = detectProvider(item);
+        const isDrive = provider.includes("drive") || provider.includes("google");
+
         const card = document.createElement("div");
-        card.className = "img-card";
+        card.className = "img-card" + (id && id === currentSelectedId ? " selected" : "");
         const previewSrc = item.thumbnail || item.medium || item.webp || item.url || "";
         card.innerHTML = `
-          ${previewSrc ? `<img class="img-thumb" src="${previewSrc}" alt="${item.filename || item.imageId || ""}" />` : `<div class="img-thumb"></div>`}
+          ${previewSrc ? `<img class="img-thumb" src="${previewSrc}" alt="${item.filename || id || ""}" />` : `<div class="img-thumb"></div>`}
           <div class="img-body">
-            <div class="img-title">${item.filename || item.name || item.imageId || item.id || "image"}</div>
-            <div style="color: var(--muted);">ID: ${item.imageId || item.id || "-"}</div>
+            <div class="img-title">${item.filename || item.name || id || "image"}</div>
+            <span class="provider-tag ${isDrive ? "drive" : ""}">${provider}</span>
+            <div style="color: var(--muted);">ID: ${id || "-"}</div>
             <div style="color: var(--muted);">Status: ${item.status || "-"}</div>
           </div>
         `;
         card.onclick = () => {
-          const id = item.imageId || item.id;
+          document.querySelectorAll(".img-card.selected").forEach((el) => el.classList.remove("selected"));
+          card.classList.add("selected");
           if (id) document.getElementById("statusImageId").value = id;
-          const driveId = item.driveFileId || item.drive_file_id;
           if (driveId) document.getElementById("previewDriveFileId").value = driveId;
+          document.getElementById("selectedImageProvider").value = provider;
         };
         grid.appendChild(card);
       });
@@ -960,6 +1029,54 @@
       const id = document.getElementById("statusImageId").value.trim();
       if (!id) return alert("Nhập imageId");
       await apiRequest("GET", `/images/${encodeURIComponent(id)}`);
+    };
+
+    async function executeDelete(rawId, providerHint = "") {
+      const id = (rawId || "").trim();
+      if (!id) {
+        alert("Nhập imageId cần xóa hoặc chọn ảnh trong Gallery.");
+        return;
+      }
+
+      const needConfirm = document.getElementById("confirmBeforeDelete").value === "true";
+      if (needConfirm) {
+        const providerNote = providerHint ? ` (provider: ${providerHint})` : "";
+        if (!confirm(`Xác nhận gọi DELETE /images/${id}${providerNote}?`)) return;
+      }
+
+      const path = `/images/${encodeURIComponent(id)}`;
+      const { status } = await apiRequest("DELETE", path, { requiresAuth: true });
+      if (status === 204) {
+        if (document.getElementById("statusImageId").value.trim() === id) {
+          document.getElementById("selectedImageProvider").value = "";
+        }
+        await listImages();
+      }
+    }
+
+    window.deleteSelectedImage = async () => {
+      const id = document.getElementById("statusImageId").value.trim();
+      const provider = document.getElementById("selectedImageProvider").value.trim();
+      await executeDelete(id, provider);
+    };
+
+    window.testDeleteGoogleDriveImage = async () => {
+      let id = document.getElementById("statusImageId").value.trim();
+      let provider = document.getElementById("selectedImageProvider").value.trim();
+      const driveFileId = document.getElementById("previewDriveFileId").value.trim();
+
+      if (!id && driveFileId) {
+        id = driveFileId.startsWith("drive_") ? driveFileId : `drive_${driveFileId}`;
+        document.getElementById("statusImageId").value = id;
+        provider = provider || "google_drive";
+        document.getElementById("selectedImageProvider").value = provider;
+      }
+
+      if (!id) {
+        return alert("Hãy chọn một ảnh Google Drive trong Gallery hoặc nhập imageId / Drive File ID rồi bấm Test Xóa Google Drive.");
+      }
+
+      await executeDelete(id, provider || "google_drive");
     };
 
     window.previewDriveImage = async () => {

@@ -2,15 +2,61 @@ import os
 import uuid
 from datetime import datetime, timezone
 from typing import Any
+
+from google.cloud import firestore
+
 from app.config import settings
 from app.exceptions import (
-    InvalidFileException,
     ForbiddenAccessException,
+    InvalidFileException,
     NotFoundException,
 )
 from app.repositories.image_repository import image_repo
-from app.services.google_drive import google_drive_service
+from app.services.cloudinary_admin import (
+    asset_doc_id,
+    delete_resources,
+    extract_three_public_ids,
+)
 from app.services.cloudinary_service import cloudinary_service
+from app.services.google_drive import google_drive_service
+
+try:
+    from app.services.cloudinary_admin import (
+        AdminError,
+        AdminRateLimited,
+        AdminUnavailable,
+    )
+except ImportError:
+    class AdminError(Exception):
+        """Lỗi chung khi gọi Cloudinary Admin API."""
+
+    class AdminRateLimited(AdminError):
+        """Cloudinary Admin API vượt giới hạn request (429 / rate limit)."""
+
+    class AdminUnavailable(AdminError):
+        """Cloudinary Admin API lỗi, timeout hoặc không khả dụng (5xx / network)."""
+
+
+class ImageNotFoundError(Exception):
+    pass
+
+
+class ForbiddenImageError(Exception):
+    pass
+
+
+class UnsupportedProviderError(Exception):
+    pass
+
+
+class ImageAlreadyDeletedError(Exception):
+    pass
+
+
+def ensure_grant_not_deleted(grant_doc: dict | None) -> None:
+    """Gọi trong luồng confirm để trả 409 nếu imageId đã bị xóa."""
+    if grant_doc and str(grant_doc.get("status", "")).upper() == "DELETED":
+        raise ImageAlreadyDeletedError("Image grant has been deleted")
 
 
 def createImageId() -> str:
@@ -49,6 +95,27 @@ def verifyOwner(doc: dict[str, Any], uid: str) -> None:
 
 
 class ImageService:
+    def __init__(self, db: firestore.Client | None = None) -> None:
+        self.db = db
+
+    def _resolve_db(self, db: firestore.Client | None = None):
+        if db is not None:
+            return db
+        if getattr(self, "db", None) is not None:
+            return self.db
+        repo_db = getattr(image_repo, "db", None)
+        if repo_db is not None:
+            return repo_db
+        try:
+            import firebase_admin
+            from firebase_admin import firestore as fb_firestore
+
+            if firebase_admin._apps:
+                return fb_firestore.client()
+        except Exception:
+            pass
+        return firestore.Client(project=getattr(settings, "FIREBASE_PROJECT_ID", None) or "image-processing-project-ea23d")
+
     def requestUpload(
         self,
         uid: str,
@@ -277,6 +344,75 @@ class ImageService:
             "total": len(items),
             "items": items,
         }
+
+    def _extract_drive_file_id(self, doc: dict[str, Any], image_id: str) -> str | None:
+        raw_id = doc.get("driveFileId") or doc.get("drive_file_id")
+        if isinstance(raw_id, str) and raw_id.strip():
+            return raw_id.strip()
+        if image_id.startswith("drive_") and len(image_id) > len("drive_"):
+            return image_id[len("drive_") :].strip()
+        return None
+
+    def delete_image(self, uid: str, image_id: str, db: firestore.Client | None = None) -> None:
+        firestore_db = self._resolve_db(db)
+        image_ref = firestore_db.collection("images").document(image_id)
+        snap = image_ref.get()
+        if not snap.exists:
+            raise ImageNotFoundError("Image not found")
+
+        doc = snap.to_dict() or {}
+        if doc.get("ownerId") != uid:
+            raise ForbiddenImageError("Forbidden")
+
+        provider = (doc.get("provider") or "").strip().lower()
+
+        if provider == "cloudinary":
+            public_ids = extract_three_public_ids(doc, image_id)
+            delete_resources(public_ids=public_ids)
+
+            batch = firestore_db.batch()
+            batch.delete(image_ref)
+
+            for pid in public_ids:
+                asset_ref = firestore_db.collection("cloudinaryAssets").document(asset_doc_id(pid))
+                batch.delete(asset_ref)
+
+            grant_ref = firestore_db.collection("uploadGrants").document(image_id)
+            batch.set(
+                grant_ref,
+                {
+                    "status": "DELETED",
+                    "deletedAt": datetime.now(timezone.utc).isoformat(),
+                },
+                merge=True,
+            )
+            batch.commit()
+            return
+
+        if provider in {"google_drive", "drive"}:
+            drive_file_id = self._extract_drive_file_id(doc, image_id)
+            if not drive_file_id:
+                raise AdminUnavailable("Missing Google Drive fileId")
+
+            # Xóa trên Google Drive trước; nếu lỗi thì raise để trả 503 và giữ nguyên doc
+            google_drive_service.delete_file(uid=uid, file_id=drive_file_id)
+
+            batch = firestore_db.batch()
+            batch.delete(image_ref)
+            grant_ref = firestore_db.collection("uploadGrants").document(image_id)
+            if grant_ref.get().exists:
+                batch.set(
+                    grant_ref,
+                    {
+                        "status": "DELETED",
+                        "deletedAt": datetime.now(timezone.utc).isoformat(),
+                    },
+                    merge=True,
+                )
+            batch.commit()
+            return
+
+        raise UnsupportedProviderError("Unsupported provider")
 
 
 image_service = ImageService()

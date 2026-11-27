@@ -1,8 +1,10 @@
 import io
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
-from app.services.google_oauth import google_oauth_service
+from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 from app.exceptions import UnauthorizedException
+from app.services.cloudinary_admin import AdminUnavailable
+from app.services.google_oauth import google_oauth_service
 
 
 class GoogleDriveService:
@@ -171,6 +173,21 @@ class GoogleDriveService:
             _, done = downloader.next_chunk()
 
         return buffer.getvalue(), mime_type
+
+    def delete_file(self, uid: str, file_id: str) -> None:
+        if not file_id or not str(file_id).strip():
+            raise ValueError("Missing Google Drive file_id")
+
+        drive_service = self._get_drive_client(uid)
+        try:
+            drive_service.files().delete(fileId=file_id.strip()).execute()
+        except HttpError as exc:
+            status_code = getattr(exc.resp, "status", None)
+            if status_code == 404:
+                return
+            raise AdminUnavailable(f"Google Drive delete failed ({status_code})") from exc
+        except Exception as exc:
+            raise AdminUnavailable(f"Google Drive delete error: {exc}") from exc
 
 
 google_drive_service = GoogleDriveService()

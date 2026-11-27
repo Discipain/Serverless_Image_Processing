@@ -5,7 +5,18 @@ from app.auth import get_current_uid
 from app.services.image_service import image_service
 from app.services.google_drive import google_drive_service
 from app.exceptions import UnauthorizedException
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi.concurrency import run_in_threadpool
 
+from app.services.cloudinary_admin import AdminError, AdminRateLimited, AdminUnavailable
+from app.services.image_service import (
+    ForbiddenImageError,
+    ImageAlreadyDeletedError,
+    ImageNotFoundError,
+    UnsupportedProviderError,
+    image_service,
+)
+import logging
 router = APIRouter(prefix="/images", tags=["Images, Google Drive & Cloudinary"])
 
 
@@ -116,3 +127,24 @@ def list_images(
 def get_image_status(image_id: str, uid: str = Depends(get_current_uid)):
     """UC03: Xem chi tiết trạng thái ảnh (kiểm tra ownerId == uid -> 403)."""
     return image_service.getImage(uid=uid, image_id=image_id)
+
+@router.delete("/{image_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_image_endpoint(
+    image_id: str,
+    uid: str = Depends(get_current_uid),
+):
+    try:
+        await run_in_threadpool(image_service.delete_image, uid, image_id)
+    except ImageNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
+    except ForbiddenImageError:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    except UnsupportedProviderError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported provider")
+    except (AdminError, AdminRateLimited, AdminUnavailable) as exc:
+        logger.exception("Cloudinary delete failed for image_id=%s uid=%s: %s", image_id, uid, exc)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Delete unavailable")
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+logger = logging.getLogger(__name__)
