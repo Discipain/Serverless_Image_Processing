@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+venv/
+.venv/
+
+# Bí mật và dữ liệu cục bộ: TUYỆT ĐỐI KHÔNG commit
+.env
+.env.*
+!.env.example
+/credentials/
+/data/
+*.pem
+*.key
+*adminsdk*.json
+*service-account*.json
+client_secret*.json
+*oauth_tokens*.json
+*pkce_verifiers*.json
