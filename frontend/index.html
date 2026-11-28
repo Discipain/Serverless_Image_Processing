@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Image Backend Core — Firebase & Google Drive Test Workbench</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #121a30;
+      --panel-2: #17223e;
+      --border: #26365c;
+      --text: #e6edf8;
+      --muted: #93a4c7;
+      --accent: #4f8cff;
+      --accent-hover: #3875eb;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --code-bg: #080d1a;
+      --radius: 10px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    header {
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 1.05rem;
+    }
+
+    .badge {
+      font-size: 0.75rem;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(79, 140, 255, 0.16);
+      color: #8ab4ff;
+      border: 1px solid rgba(79, 140, 255, 0.35);
+    }
+
+    .top-controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .health-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      font-size: 0.85rem;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+
+    .dot.ok { background: var(--success); box-shadow: 0 0 8px var(--success); }
+    .dot.err { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 1050px) {
+      .container {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .stack {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+
+    .card h2 {
+      margin: 0 0 12px 0;
+      font-size: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    @media (max-width: 640px) {
+      .grid-2 {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    label {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    input, textarea, select {
+      width: 100%;
+      background: var(--code-bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 0.88rem;
+      font-family: inherit;
+    }
+
+    textarea {
+      min-height: 76px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.8rem;
+    }
+
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    button:hover {
+      background: var(--accent-hover);
+    }
+
+    button.secondary {
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    button.secondary:hover {
+      background: #213056;
+    }
+
+    button.success {
+      background: #15803d;
+    }
+
+    button.success:hover {
+      background: #166534;
+    }
+
+    button.warn {
+      background: #b45309;
+    }
+
+    button.warn:hover {
+      background: #92400e;
+    }
+
+    button.danger {
+      background: #b91c1c;
+    }
+
+    button.danger:hover {
+      background: #991b1b;
+    }
+
+    .session-box {
+      margin-top: 12px;
+      padding: 10px 12px;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.82rem;
+    }
+
+    .session-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 6px;
+      color: var(--muted);
+    }
+
+    .session-meta strong {
+      color: var(--text);
+    }
+
+    .banner-warn {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: rgba(245, 158, 11, 0.14);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      color: #fcd34d;
+      font-size: 0.78rem;
+      display: none;
+    }
+
+    .gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .img-card {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      cursor: pointer;
+    }
+
+    .img-card:hover {
+      border-color: var(--accent);
+    }
+
+    .img-card.selected {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+
+    .img-thumb {
+      width: 100%;
+      height: 130px;
+      object-fit: cover;
+      background: var(--code-bg);
+      display: block;
+    }
+
+    .img-body {
+      padding: 8px 10px;
+      font-size: 0.78rem;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .img-title {
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .provider-tag {
+      display: inline-block;
+      width: fit-content;
+      padding: 1px 7px;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      background: rgba(79, 140, 255, 0.16);
+      color: #93c5fd;
+    }
+
+    .provider-tag.drive {
+      background: rgba(245, 158, 11, 0.16);
+      color: #fcd34d;
+    }
+
+    .inspector {
+      position: sticky;
+      top: 72px;
+    }
+
+    .status-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 0.82rem;
+    }
+
+    .status-code {
+      padding: 3px 9px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-family: ui-monospace, monospace;
+      background: var(--panel-2);
+    }
+
+    .s-2xx { background: rgba(34, 197, 94, 0.2); color: #86efac; }
+    .s-4xx { background: rgba(245, 158, 11, 0.2); color: #fcd34d; }
+    .s-5xx { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      margin: 0;
+      overflow: auto;
+      max-height: 360px;
+      font-size: 0.78rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 220px;
+      overflow: auto;
+      margin-top: 8px;
+    }
+
+    .history-item {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 0.76rem;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      cursor: pointer;
+    }
+
+    .history-item:hover {
+      border-color: var(--accent);
+    }
+
+    .hint {
+      font-size: 0.76rem;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span>Image Backend Core</span>
+      <span class="badge">Firebase + Google Drive + Cloudinary</span>
+    </div>
+    <div class="top-controls">
+      <div style="min-width: 240px;">
+        <input id="baseUrl" type="text" value="http://localhost:8000" placeholder="http://localhost:8000" />
+      </div>
+      <button class="secondary" onclick="checkHealth()">Ping /health</button>
+      <div class="health-pill">
+        <span id="healthDot" class="dot"></span>
+        <span id="healthText">Chưa kiểm tra</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="stack">
+      <!-- 1. Firebase Auth via Google -->
+      <section class="card">
+        <h2>
+          <span>1. Đăng nhập Firebase qua Google (Lấy Bearer ID Token)</span>
+          <button class="secondary" onclick="refreshFirebaseIdToken()">Refresh ID Token</button>
+        </h2>
+
+        <div class="grid-2">
+          <div>
+            <label>Firebase Web API Key (Client SDK)</label>
+            <input id="fbApiKey" type="text" value="AIzaSyCWB2NlpKXpF-tcTxY8M3IvyXXaTpp3AMc" placeholder="AIza..." />
+          </div>
+          <div>
+            <label>Firebase Project ID</label>
+            <input id="fbProjectId" type="text" value="image-processing-project-ea23d" />
+          </div>
+        </div>
+        <div class="grid-2" style="margin-top: 8px;">
+          <div>
+            <label>Firebase Auth Domain</label>
+            <input id="fbAuthDomain" type="text" value="image-processing-project-ea23d.firebaseapp.com" placeholder="image-processing-project-ea23d.firebaseapp.com" />
+          </div>
+          <div>
+            <label>Firebase Custom Token (từ /oauth/callback)</label>
+            <input id="fbCustomToken" type="text" placeholder="Tự động điền khi redirect về từ /oauth/callback" />
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button class="success" onclick="signInGoogleFirebasePopup()">Đăng nhập Google (Firebase Popup)</button>
+          <button onclick="signInWithCustomTokenManual()">Đổi Custom Token → ID Token</button>
+          <button class="secondary" onclick="startGoogleOAuthRedirect()">Google OAuth (/oauth/google/redirect)</button>
+          <button class="secondary" onclick="fetchGoogleOAuthLoginUrl()">GET /oauth/google/login</button>
+          <button class="warn" onclick="signOutFirebase()">Đăng xuất</button>
+        </div>
+
+        <div id="customTokenWarn" class="banner-warn"></div>
+
+        <div style="margin-top: 10px;">
+          <label>Firebase ID Token hiện tại (gửi dạng <code>Authorization: Bearer &lt;idToken&gt;</code>)</label>
+          <textarea id="bearerToken" placeholder="eyJhbGciOiJSUzI1NiIs..."></textarea>
+          <div class="btn-row">
+            <button class="secondary" onclick="copyBearerToken()">Copy Bearer Token</button>
+            <button class="secondary" onclick="saveConfigAndToken()">Lưu vào localStorage</button>
+          </div>
+        </div>
+
+        <div class="session-box">
+          <div class="session-meta">
+            <span>UID: <strong id="sessionUid">-</strong></span>
+            <span>Email: <strong id="sessionEmail">-</strong></span>
+            <span>Name: <strong id="sessionName">-</strong></span>
+          </div>
+          <div class="hint" id="authHint">
+            Cấu hình Firebase Web SDK đã điền sẵn cho project <code>image-processing-project-ea23d</code>. Dùng Firebase Popup hoặc Google OAuth redirect để lấy ID Token.
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. Google Drive Folder -->
+      <section class="card">
+        <h2>2. Google Drive Folder (<code>POST /images/drive/folders</code>)</h2>
+        <div class="grid-2">
+          <div>
+            <label>Folder Name</label>
+            <input id="folderName" type="text" value="Hi" />
+          </div>
+          <div>
+            <label>Parent Folder ID (optional)</label>
+            <input id="parentId" type="text" placeholder="Để trống nếu tạo ở root" />
+          </div>
+        </div>
+        <div class="btn-row">
+          <button onclick="createDriveFolder()">Tạo Folder & Pipeline</button>
+        </div>
+      </section>
+
+      <!-- 3. Cloudinary Upload Flow -->
+      <section class="card">
+        <h2>3. Cloudinary Upload Flow</h2>
+        <div>
+          <label>Chọn file ảnh thật (tự điền metadata cho /upload-url)</label>
+          <input id="fileInput" type="file" accept="image/jpeg,image/png,image/webp" onchange="onFileSelected(event)" />
+        </div>
+        <div class="grid-2" style="margin-top: 8px;">
+          <div>
+            <label>Filename</label>
+            <input id="upFilename" type="text" value="sample.jpg" />
+          </div>
+          <div>
+            <label>Content Type</label>
+            <input id="upContentType" type="text" value="image/jpeg" />
+          </div>
+        </div>
+        <div class="grid-2" style="margin-top: 8px;">
+          <div>
+            <label>Size Bytes</label>
+            <input id="upSizeBytes" type="number" value="102400" />
+          </div>
+          <div>
+            <label>Image ID (cho /cloudinary/confirm)</label>
+            <input id="confirmImageId" type="text" placeholder="Tự điền sau khi gọi /upload-url hoặc nhập tay" />
+          </div>
+        </div>
+        <div class="btn-row">
+          <button onclick="requestUploadUrl()">POST /images/upload-url</button>
+          <button class="secondary" onclick="fillMockConfirmPayload()">Điền mẫu Confirm</button>
+          <button class="success" onclick="confirmCloudinaryUpload()">POST /images/cloudinary/confirm</button>
+        </div>
+        <div style="margin-top: 8px;">
+          <label>Cloudinary Confirm JSON Payload</label>
+          <textarea id="confirmPayload">{
+  "imageId": "img_demo_001",
+  "thumbnail": "https://res.cloudinary.com/demo/image/upload/w_200/sample.jpg",
+  "medium": "https://res.cloudinary.com/demo/image/upload/w_800/sample.jpg",
+  "webp": "https://res.cloudinary.com/demo/image/upload/f_webp/sample.webp",
+  "processingMs": 120,
+  "filename": "sample.jpg",
+  "contentType": "image/jpeg",
+  "sizeBytes": 102400
+}</textarea>
+        </div>
+      </section>
+
+      <!-- 4. Sync, List, Status, Delete & Drive Preview -->
+      <section class="card">
+        <h2>4. Gallery, Sync, Delete & Drive Preview</h2>
+        <div class="grid-2">
+          <div>
+            <label>Root Folder ID (optional, cho /sync & /images)</label>
+            <input id="queryFolderId" type="text" placeholder="Drive folder ID" />
+          </div>
+          <div>
+            <label>Image ID (cho GET /images/{image_id} &amp; DELETE /images/{image_id})</label>
+            <input id="statusImageId" type="text" placeholder="Nhập imageId (Cloudinary hoặc Google Drive)" />
+          </div>
+        </div>
+        <div class="grid-2" style="margin-top: 8px;">
+          <div>
+            <label>Drive File ID (cho GET /images/preview/{drive_file_id})</label>
+            <input id="previewDriveFileId" type="text" placeholder="Nhập drive_file_id" />
+          </div>
+          <div>
+            <label>Provider ảnh đang chọn (cloudinary / google_drive / drive)</label>
+            <input id="selectedImageProvider" type="text" readonly placeholder="Tự điền khi click card" />
+          </div>
+        </div>
+        <div class="grid-2" style="margin-top: 8px;">
+          <div>
+            <label>UID Preview (mặc định lấy từ phiên hiện tại)</label>
+            <input id="previewUid" type="text" placeholder="uid" />
+          </div>
+          <div>
+            <label>Chế độ xác nhận khi bấm Xóa</label>
+            <select id="confirmBeforeDelete">
+              <option value="true" selected>Hỏi xác nhận trước khi DELETE</option>
+              <option value="false">Gửi DELETE ngay (tiện test nhanh 204 / 400 / 403 / 404)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button onclick="syncImages()">POST /images/sync</button>
+          <button class="secondary" onclick="listImages()">GET /images</button>
+          <button class="secondary" onclick="getImageStatus()">GET /images/{id}</button>
+          <button class="danger" onclick="deleteSelectedImage()">DELETE /images/{id}</button>
+          <button class="warn" onclick="testDeleteGoogleDriveImage()">Test Xóa Google Drive</button>
+          <button class="secondary" onclick="previewDriveImage()">Preview Drive Image</button>
+        </div>
+        <div class="hint">
+          Xóa ảnh <strong>Cloudinary</strong> hoặc <strong>Google Drive</strong> qua <code>DELETE /images/{id}</code> trả <code>204 No Content</code> khi thành công, hoặc <code>400 {"detail": "Unsupported provider"}</code> nếu backend chưa bật xóa cho provider đó.
+        </div>
+
+        <div id="drivePreviewContainer" style="margin-top: 12px; display: none;">
+          <label>Drive Preview Stream Result</label>
+          <img id="drivePreviewImg" class="img-thumb" style="height: 200px; width: auto; max-width: 100%; border-radius: 8px; border: 1px solid var(--border);" alt="Drive preview" />
+        </div>
+
+        <div id="galleryGrid" class="gallery-grid"></div>
+      </section>
+    </div>
+
+    <!-- Right Column: Inspector & Request Log -->
+    <aside class="stack inspector">
+      <section class="card">
+        <h2>
+          <span>Response Inspector</span>
+          <button class="secondary" onclick="copyResponse()">Copy JSON</button>
+        </h2>
+        <div class="status-bar">
+          <div>
+            <span id="resStatus" class="status-code">-</span>
+            <span id="resEndpoint" style="color: var(--muted); margin-left: 6px;">Chưa có request</span>
+          </div>
+          <span id="resLatency" style="color: var(--muted);">0 ms</span>
+        </div>
+        <pre id="resBody">{ "message": "Gửi request để xem phản hồi từ server." }</pre>
+      </section>
+
+      <section class="card">
+        <h2>
+          <span>Request History</span>
+          <button class="secondary" onclick="clearHistory()">Xóa log</button>
+        </h2>
+        <div id="historyList" class="history-list"></div>
+      </section>
+    </aside>
+  </main>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import {
+      getAuth,
+      GoogleAuthProvider,
+      signInWithPopup,
+      signInWithCustomToken,
+      signOut,
+      onAuthStateChanged
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+    const DEFAULT_FB_CONFIG = {
+      apiKey: "AIzaSyCWB2NlpKXpF-tcTxY8M3IvyXXaTpp3AMc",
+      authDomain: "image-processing-project-ea23d.firebaseapp.com",
+      projectId: "image-processing-project-ea23d",
+      storageBucket: "image-processing-project-ea23d.firebasestorage.app",
+      messagingSenderId: "327637110759",
+      appId: "1:327637110759:web:e15c1de4a7c7a3e5c13742",
+      measurementId: "G-9BNSJ8HHQC"
+    };
+
+    let fbApp = null;
+    let fbAuth = null;
+    const historyItems = [];
+
+    function getBaseUrl() {
+      return document.getElementById("baseUrl").value.trim().replace(/\/+$/, "");
+    }
+
+    function getBearer() {
+      return document.getElementById("bearerToken").value.trim();
+    }
+
+    function setBearerToken(token) {
+      document.getElementById("bearerToken").value = token || "";
+      localStorage.setItem("fb_id_token", token || "");
+    }
+
+    function showCustomTokenWarning(msg) {
+      const el = document.getElementById("customTokenWarn");
+      if (!msg) {
+        el.style.display = "none";
+        el.textContent = "";
+      } else {
+        el.style.display = "block";
+        el.textContent = msg;
+      }
+    }
+
+    function updateSessionUI(userOrInfo) {
+      const uid = userOrInfo?.uid || localStorage.getItem("session_uid") || "-";
+      const email = userOrInfo?.email || localStorage.getItem("session_email") || "-";
+      const name = userOrInfo?.displayName || userOrInfo?.name || localStorage.getItem("session_name") || "-";
+
+      if (userOrInfo?.uid) localStorage.setItem("session_uid", userOrInfo.uid);
+      if (userOrInfo?.email) localStorage.setItem("session_email", userOrInfo.email);
+      if (userOrInfo?.displayName || userOrInfo?.name) {
+        localStorage.setItem("session_name", userOrInfo.displayName || userOrInfo.name);
+      }
+
+      document.getElementById("sessionUid").textContent = uid;
+      document.getElementById("sessionEmail").textContent = email;
+      document.getElementById("sessionName").textContent = name;
+      if (uid !== "-" && !document.getElementById("previewUid").value) {
+        document.getElementById("previewUid").value = uid;
+      }
+    }
+
+    function ensureFirebaseClient() {
+      const apiKey = document.getElementById("fbApiKey").value.trim() || DEFAULT_FB_CONFIG.apiKey;
+      const projectId = document.getElementById("fbProjectId").value.trim() || DEFAULT_FB_CONFIG.projectId;
+      const authDomain = document.getElementById("fbAuthDomain").value.trim() || DEFAULT_FB_CONFIG.authDomain;
+
+      const config = {
+        ...DEFAULT_FB_CONFIG,
+        apiKey,
+        projectId,
+        authDomain
+      };
+      localStorage.setItem("fb_web_config", JSON.stringify(config));
+
+      if (!fbApp || JSON.stringify(fbApp.options) !== JSON.stringify(config)) {
+        fbApp = initializeApp(config, "workbench_" + Date.now());
+        fbAuth = getAuth(fbApp);
+        onAuthStateChanged(fbAuth, async (user) => {
+          if (user) {
+            const idToken = await user.getIdToken();
+            setBearerToken(idToken);
+            updateSessionUI(user);
+          }
+        });
+      }
+      return fbAuth;
+    }
+
+    function renderResponse(method, path, status, latencyMs, data) {
+      const statusEl = document.getElementById("resStatus");
+      statusEl.textContent = status;
+      statusEl.className = "status-code " + (status >= 200 && status < 300 ? "s-2xx" : status >= 400 && status < 500 ? "s-4xx" : "s-5xx");
+      document.getElementById("resEndpoint").textContent = `${method} ${path}`;
+      document.getElementById("resLatency").textContent = `${latencyMs} ms`;
+      document.getElementById("resBody").textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+
+      historyItems.unshift({
+        time: new Date().toLocaleTimeString(),
+        method,
+        path,
+        status,
+        latencyMs,
+        data
+      });
+      renderHistory();
+    }
+
+    function renderHistory() {
+      const list = document.getElementById("historyList");
+      list.innerHTML = "";
+      historyItems.slice(0, 25).forEach((item) => {
+        const div = document.createElement("div");
+        div.className = "history-item";
+        div.innerHTML = `<span><strong>${item.method}</strong> ${item.path}</span><span>${item.status} · ${item.latencyMs}ms</span>`;
+        div.onclick = () => {
+          document.getElementById("resStatus").textContent = item.status;
+          document.getElementById("resEndpoint").textContent = `${item.method} ${item.path}`;
+          document.getElementById("resLatency").textContent = `${item.latencyMs} ms`;
+          document.getElementById("resBody").textContent = typeof item.data === "string" ? item.data : JSON.stringify(item.data, null, 2);
+        };
+        list.appendChild(div);
+      });
+    }
+
+    async function apiRequest(method, path, { body = null, requiresAuth = true } = {}) {
+      const url = `${getBaseUrl()}${path}`;
+      const headers = {};
+      if (body !== null) {
+        headers["Content-Type"] = "application/json";
+      }
+      if (requiresAuth) {
+        const token = getBearer();
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
+      }
+
+      const start = performance.now();
+      const resp = await fetch(url, {
+        method,
+        headers,
+        body: body !== null ? JSON.stringify(body) : null
+      });
+      const latency = Math.round(performance.now() - start);
+      const text = await resp.text();
+      let parsed = text || (resp.status === 204 ? "(204 No Content - empty body)" : "");
+      if (text) {
+        try {
+          parsed = JSON.parse(text);
+        } catch (_) {}
+      }
+
+      renderResponse(method, path, resp.status, latency, parsed);
+      return { status: resp.status, data: parsed };
+    }
+
+    window.checkHealth = async () => {
+      try {
+        const { status } = await apiRequest("GET", "/health", { requiresAuth: false });
+        const dot = document.getElementById("healthDot");
+        const txt = document.getElementById("healthText");
+        if (status === 200) {
+          dot.className = "dot ok";
+          txt.textContent = "Online (200)";
+        } else {
+          dot.className = "dot err";
+          txt.textContent = `Status ${status}`;
+        }
+      } catch (e) {
+        document.getElementById("healthDot").className = "dot err";
+        document.getElementById("healthText").textContent = "Offline";
+        renderResponse("GET", "/health", 0, 0, { error: e.message });
+      }
+    };
+
+    window.signInGoogleFirebasePopup = async () => {
+      try {
+        const auth = ensureFirebaseClient();
+        const provider = new GoogleAuthProvider();
+        provider.addScope("https://www.googleapis.com/auth/drive.file");
+        const cred = await signInWithPopup(auth, provider);
+        const idToken = await cred.user.getIdToken(true);
+        setBearerToken(idToken);
+        updateSessionUI(cred.user);
+        showCustomTokenWarning("");
+        renderResponse("FIREBASE", "signInWithPopup(Google)", 200, 0, {
+          uid: cred.user.uid,
+          email: cred.user.email,
+          displayName: cred.user.displayName,
+          idTokenPreview: idToken.slice(0, 32) + "..."
+        });
+      } catch (e) {
+        renderResponse("FIREBASE", "signInWithPopup(Google)", 400, 0, { error: e.message });
+      }
+    };
+
+    window.signInWithCustomTokenManual = async () => {
+      try {
+        const customToken = document.getElementById("fbCustomToken").value.trim();
+        if (!customToken) throw new Error("Chưa có Firebase Custom Token.");
+        const auth = ensureFirebaseClient();
+        const cred = await signInWithCustomToken(auth, customToken);
+        const idToken = await cred.user.getIdToken(true);
+        setBearerToken(idToken);
+        updateSessionUI(cred.user);
+        showCustomTokenWarning("");
+        renderResponse("FIREBASE", "signInWithCustomToken", 200, 0, {
+          uid: cred.user.uid,
+          idTokenPreview: idToken.slice(0, 32) + "..."
+        });
+      } catch (e) {
+        renderResponse("FIREBASE", "signInWithCustomToken", 400, 0, { error: e.message });
+      }
+    };
+
+    window.refreshFirebaseIdToken = async () => {
+      try {
+        if (!fbAuth || !fbAuth.currentUser) {
+          throw new Error("Chưa có phiên Firebase Client đang đăng nhập để refresh token.");
+        }
+        const idToken = await fbAuth.currentUser.getIdToken(true);
+        setBearerToken(idToken);
+        renderResponse("FIREBASE", "getIdToken(true)", 200, 0, {
+          refreshed: true,
+          idTokenPreview: idToken.slice(0, 32) + "..."
+        });
+      } catch (e) {
+        renderResponse("FIREBASE", "getIdToken(true)", 400, 0, { error: e.message });
+      }
+    };
+
+    window.signOutFirebase = async () => {
+      try {
+        if (fbAuth && fbAuth.currentUser) {
+          await signOut(fbAuth);
+        }
+        setBearerToken("");
+        localStorage.removeItem("session_uid");
+        localStorage.removeItem("session_email");
+        localStorage.removeItem("session_name");
+        document.getElementById("sessionUid").textContent = "-";
+        document.getElementById("sessionEmail").textContent = "-";
+        document.getElementById("sessionName").textContent = "-";
+        showCustomTokenWarning("");
+        renderResponse("FIREBASE", "signOut", 200, 0, { signedOut: true });
+      } catch (e) {
+        renderResponse("FIREBASE", "signOut", 400, 0, { error: e.message });
+      }
+    };
+
+    window.startGoogleOAuthRedirect = () => {
+      window.location.href = `${getBaseUrl()}/oauth/google/redirect`;
+    };
+
+    window.fetchGoogleOAuthLoginUrl = async () => {
+      try {
+        await apiRequest("GET", "/oauth/google/login", { requiresAuth: false });
+      } catch (e) {
+        renderResponse("GET", "/oauth/google/login", 0, 0, { error: e.message });
+      }
+    };
+
+    window.saveConfigAndToken = () => {
+      localStorage.setItem("backend_base_url", getBaseUrl());
+      localStorage.setItem("fb_id_token", getBearer());
+      localStorage.setItem("fb_custom_token", document.getElementById("fbCustomToken").value.trim());
+      ensureFirebaseClient();
+      alert("Đã lưu cấu hình & token vào localStorage.");
+    };
+
+    window.copyBearerToken = async () => {
+      await navigator.clipboard.writeText(getBearer());
+      alert("Đã copy Bearer Token.");
+    };
+
+    window.copyResponse = async () => {
+      await navigator.clipboard.writeText(document.getElementById("resBody").textContent);
+      alert("Đã copy JSON response.");
+    };
+
+    window.clearHistory = () => {
+      historyItems.length = 0;
+      renderHistory();
+    };
+
+    window.createDriveFolder = async () => {
+      const folderName = document.getElementById("folderName").value.trim();
+      const parentIdVal = document.getElementById("parentId").value.trim();
+      await apiRequest("POST", "/images/drive/folders", {
+        body: { folderName, parentId: parentIdVal || null }
+      });
+    };
+
+    window.onFileSelected = (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      document.getElementById("upFilename").value = file.name;
+      document.getElementById("upContentType").value = file.type || "image/jpeg";
+      document.getElementById("upSizeBytes").value = file.size;
+    };
+
+    window.requestUploadUrl = async () => {
+      const payload = {
+        filename: document.getElementById("upFilename").value.trim(),
+        contentType: document.getElementById("upContentType").value.trim(),
+        sizeBytes: Number(document.getElementById("upSizeBytes").value || 0)
+      };
+      const { data } = await apiRequest("POST", "/images/upload-url", { body: payload });
+      if (data && (data.imageId || data.id)) {
+        document.getElementById("confirmImageId").value = data.imageId || data.id;
+      }
+    };
+
+    window.fillMockConfirmPayload = () => {
+      const imgId = document.getElementById("confirmImageId").value.trim() || "img_" + Date.now();
+      const fname = document.getElementById("upFilename").value.trim() || "sample.jpg";
+      const baseName = fname.replace(/\.[^.]+$/, "");
+      const ctype = document.getElementById("upContentType").value.trim() || "image/jpeg";
+      const sbytes = Number(document.getElementById("upSizeBytes").value || 102400);
+
+      document.getElementById("confirmPayload").value = JSON.stringify({
+        imageId: imgId,
+        fileName: fname,
+        originalSize: sbytes,
+        processedSize: Math.max(1024, Math.round(sbytes * 0.5)),
+        thumbnailPublicId: `images/${imgId}/thumb_${baseName}`,
+        mediumPublicId: `images/${imgId}/medium_${baseName}`,
+        webpPublicId: `images/${imgId}/webp_${baseName}`,
+        processingMs: 145,
+        contentType: ctype
+      }, null, 2);
+    };
+
+    window.confirmCloudinaryUpload = async () => {
+      const raw = document.getElementById("confirmPayload").value;
+      const body = JSON.parse(raw);
+      await apiRequest("POST", "/images/cloudinary/confirm", { body });
+    };
+
+    function detectProvider(item) {
+      const raw = (item?.provider || item?.source || item?.storageProvider || "").toString().toLowerCase();
+      if (raw) return raw;
+      if (item?.driveFileId || item?.drive_file_id) return "google_drive";
+      return "cloudinary";
+    }
+
+    function renderGallery(data) {
+      const grid = document.getElementById("galleryGrid");
+      grid.innerHTML = "";
+      const items = Array.isArray(data) ? data : (data?.images || data?.items || []);
+      if (!Array.isArray(items) || items.length === 0) return;
+
+      const currentSelectedId = document.getElementById("statusImageId").value.trim();
+
+      items.forEach((item) => {
+        const id = item.imageId || item.id || "";
+        const driveId = item.driveFileId || item.drive_file_id || "";
+        const provider = detectProvider(item);
+        const isDrive = provider.includes("drive") || provider.includes("google");
+
+        const card = document.createElement("div");
+        card.className = "img-card" + (id && id === currentSelectedId ? " selected" : "");
+        const previewSrc = item.thumbnail || item.medium || item.webp || item.url || "";
+        card.innerHTML = `
+          ${previewSrc ? `<img class="img-thumb" src="${previewSrc}" alt="${item.filename || id || ""}" />` : `<div class="img-thumb"></div>`}
+          <div class="img-body">
+            <div class="img-title">${item.filename || item.name || id || "image"}</div>
+            <span class="provider-tag ${isDrive ? "drive" : ""}">${provider}</span>
+            <div style="color: var(--muted);">ID: ${id || "-"}</div>
+            <div style="color: var(--muted);">Status: ${item.status || "-"}</div>
+          </div>
+        `;
+        card.onclick = () => {
+          document.querySelectorAll(".img-card.selected").forEach((el) => el.classList.remove("selected"));
+          card.classList.add("selected");
+          if (id) document.getElementById("statusImageId").value = id;
+          if (driveId) document.getElementById("previewDriveFileId").value = driveId;
+          document.getElementById("selectedImageProvider").value = provider;
+        };
+        grid.appendChild(card);
+      });
+    }
+
+    window.syncImages = async () => {
+      const folderId = document.getElementById("queryFolderId").value.trim();
+      const qs = folderId ? `?folderId=${encodeURIComponent(folderId)}` : "";
+      const { data } = await apiRequest("POST", `/images/sync${qs}`);
+      renderGallery(data);
+    };
+
+    window.listImages = async () => {
+      const folderId = document.getElementById("queryFolderId").value.trim();
+      const qs = folderId ? `?folderId=${encodeURIComponent(folderId)}` : "";
+      const { data } = await apiRequest("GET", `/images${qs}`);
+      renderGallery(data);
+    };
+
+    window.getImageStatus = async () => {
+      const id = document.getElementById("statusImageId").value.trim();
+      if (!id) return alert("Nhập imageId");
+      await apiRequest("GET", `/images/${encodeURIComponent(id)}`);
+    };
+
+    async function executeDelete(rawId, providerHint = "") {
+      const id = (rawId || "").trim();
+      if (!id) {
+        alert("Nhập imageId cần xóa hoặc chọn ảnh trong Gallery.");
+        return;
+      }
+
+      const needConfirm = document.getElementById("confirmBeforeDelete").value === "true";
+      if (needConfirm) {
+        const providerNote = providerHint ? ` (provider: ${providerHint})` : "";
+        if (!confirm(`Xác nhận gọi DELETE /images/${id}${providerNote}?`)) return;
+      }
+
+      const path = `/images/${encodeURIComponent(id)}`;
+      const { status } = await apiRequest("DELETE", path, { requiresAuth: true });
+      if (status === 204) {
+        if (document.getElementById("statusImageId").value.trim() === id) {
+          document.getElementById("selectedImageProvider").value = "";
+        }
+        await listImages();
+      }
+    }
+
+    window.deleteSelectedImage = async () => {
+      const id = document.getElementById("statusImageId").value.trim();
+      const provider = document.getElementById("selectedImageProvider").value.trim();
+      await executeDelete(id, provider);
+    };
+
+    window.testDeleteGoogleDriveImage = async () => {
+      let id = document.getElementById("statusImageId").value.trim();
+      let provider = document.getElementById("selectedImageProvider").value.trim();
+      const driveFileId = document.getElementById("previewDriveFileId").value.trim();
+
+      if (!id && driveFileId) {
+        id = driveFileId.startsWith("drive_") ? driveFileId : `drive_${driveFileId}`;
+        document.getElementById("statusImageId").value = id;
+        provider = provider || "google_drive";
+        document.getElementById("selectedImageProvider").value = provider;
+      }
+
+      if (!id) {
+        return alert("Hãy chọn một ảnh Google Drive trong Gallery hoặc nhập imageId / Drive File ID rồi bấm Test Xóa Google Drive.");
+      }
+
+      await executeDelete(id, provider || "google_drive");
+    };
+
+    window.previewDriveImage = async () => {
+      const fileId = document.getElementById("previewDriveFileId").value.trim();
+      const uid = document.getElementById("previewUid").value.trim() || localStorage.getItem("session_uid") || "";
+      if (!fileId) return alert("Nhập drive_file_id");
+      const path = `/images/preview/${encodeURIComponent(fileId)}?uid=${encodeURIComponent(uid)}`;
+      const url = `${getBaseUrl()}${path}`;
+      const start = performance.now();
+      const resp = await fetch(url);
+      const latency = Math.round(performance.now() - start);
+      if (resp.ok) {
+        const blob = await resp.blob();
+        const objUrl = URL.createObjectURL(blob);
+        const imgEl = document.getElementById("drivePreviewImg");
+        imgEl.src = objUrl;
+        document.getElementById("drivePreviewContainer").style.display = "block";
+        renderResponse("GET", path, resp.status, latency, { preview: "blob loaded", size: blob.size, type: blob.type });
+      } else {
+        const errText = await resp.text();
+        renderResponse("GET", path, resp.status, latency, errText);
+      }
+    };
+
+    // Khởi tạo từ localStorage và URL callback params
+    const savedBase = localStorage.getItem("backend_base_url");
+    if (savedBase) document.getElementById("baseUrl").value = savedBase;
+
+    const savedFbCfg = localStorage.getItem("fb_web_config");
+    if (savedFbCfg) {
+      try {
+        const cfg = JSON.parse(savedFbCfg);
+        if (cfg.apiKey) document.getElementById("fbApiKey").value = cfg.apiKey;
+        if (cfg.projectId) document.getElementById("fbProjectId").value = cfg.projectId;
+        if (cfg.authDomain) document.getElementById("fbAuthDomain").value = cfg.authDomain;
+      } catch (_) {}
+    }
+
+    const savedToken = localStorage.getItem("fb_id_token");
+    if (savedToken) setBearerToken(savedToken);
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const cbUid = urlParams.get("uid");
+    const cbEmail = urlParams.get("email");
+    const cbName = urlParams.get("name");
+    const cbCustomToken = urlParams.get("firebaseCustomToken");
+
+    if (cbUid || cbEmail || cbName) {
+      updateSessionUI({ uid: cbUid, email: cbEmail, name: cbName });
+    }
+
+    if (cbCustomToken) {
+      document.getElementById("fbCustomToken").value = cbCustomToken;
+      localStorage.setItem("fb_custom_token", cbCustomToken);
+      showCustomTokenWarning("");
+      window.signInWithCustomTokenManual();
+    } else if (cbUid) {
+      showCustomTokenWarning(
+        "OAuth callback trả về uid nhưng không có firebaseCustomToken (kiểm tra log backend ở _issue_firebase_custom_token). Bạn có thể bấm 'Đăng nhập Google (Firebase Popup)' để lấy Firebase ID Token trực tiếp."
+      );
+    }
+
+    updateSessionUI(null);
+    window.checkHealth();
+  </script>
+</body>
+</html>

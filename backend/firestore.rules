@@ -1,0 +1,25 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Chặn toàn bộ truy cập mặc định
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Collection images: Chỉ chủ sở hữu (ownerId == request.auth.uid) mới được đọc/ghi
+    match /images/{imageId} {
+      allow read: if request.auth != null && resource.data.ownerId == request.auth.uid;
+      
+      allow create: if request.auth != null 
+                    && request.resource.data.ownerId == request.auth.uid
+                    && request.resource.data.keys().hasAll(['imageId', 'ownerId', 'status', 'variants'])
+                    && request.resource.data.variants.keys().hasAll(['thumbnail', 'medium', 'webp']);
+
+      allow update: if request.auth != null 
+                    && resource.data.ownerId == request.auth.uid
+                    && request.resource.data.ownerId == resource.data.ownerId;
+
+      allow delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
+    }
+  }
+}

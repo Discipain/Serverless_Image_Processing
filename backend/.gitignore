@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.env
+# credentials/client_secret.json
+# credentials/firebase-adminsdk.json
+# data/oauth_tokens.json
+# data/pkce_verifiers.json
+.pytest_cache/
+venv/
+.venv/
